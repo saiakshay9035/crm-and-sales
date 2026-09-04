@@ -1,10 +1,13 @@
-import requests
 import logging
+import uuid
+import psycopg2
 from typing import Dict, Any, Optional
 from config import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("CompAICRM")
+
+NEON_DSN = "postgresql://neondb_owner:npg_1LeXsPiQW2oq@ep-delicate-morning-ayqpau96.c-5.us-east-2.aws.neon.tech/neondb?sslmode=require"
 
 class CRMError(Exception):
     """Custom exception for CRM-related errors."""
@@ -12,87 +15,132 @@ class CRMError(Exception):
 
 class CompAICRMClient:
     """
-    Integration Client for trycompai/crm (Comp AI Agentic CRM).
-    Allows autonomous agents to log companies, contacts, research evidence, and lead stages.
+    Direct Neon PostgreSQL Integration Client for Comp AI CRM.
+    Captures companies, contacts, pitches, and outreach activities directly into Neon DB.
     """
-    def __init__(self, api_url: str = settings.CRM_API_URL, api_key: str = settings.CRM_API_KEY) -> None:
-        self.api_url = api_url.rstrip("/")
-        self.headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
+    def __init__(self, dsn: str = NEON_DSN) -> None:
+        self.dsn = dsn
+
+    def _get_connection(self):
+        return psycopg2.connect(self.dsn)
+
+    def _get_default_author_id(self, cur) -> str:
+        try:
+            cur.execute('SELECT id FROM "user" LIMIT 1;')
+            row = cur.fetchone()
+            if row:
+                return row[0]
+        except Exception:
+            pass
+        return "seed-ada-okafor"
 
     def create_or_update_company(self, name: str, domain: str, location: str, summary: str) -> Dict[str, Any]:
         """
-        Creates or updates a target startup company in Comp AI CRM.
-        Logs a warning and returns a fallback dictionary if the server is offline or fails.
+        Creates or updates a target startup company directly in Neon PostgreSQL.
         """
-        endpoint = f"{self.api_url}/companies"
-        payload = {
-            "name": name,
-            "domain": domain,
-            "location": location,
-            "metadata": {
-                "summary": summary,
-                "source": "AI_Lead_Agent"
-            }
-        }
+        logger.info(f"[CompAI CRM] Logging company record for {name} ({domain}) in Neon DB...")
         try:
-            logger.info(f"[CompAI CRM] Logging company record for {name} ({domain})...")
-            response = requests.post(endpoint, json=payload, headers=self.headers, timeout=5)
-            response.raise_for_status()
-            if response.status_code in [200, 201]:
-                return response.json()
-        except requests.RequestException as e:
-            logger.warning(f"[CompAI CRM] Failed to log company {name} due to error: {e}. Operating in standalone/log mode.")
+            with self._get_connection() as conn:
+                with conn.cursor() as cur:
+                    author_id = self._get_default_author_id(cur)
+                    
+                    if domain:
+                        cur.execute('SELECT id, name, domain FROM company WHERE domain = %s AND "archivedAt" IS NULL LIMIT 1;', (domain,))
+                        row = cur.fetchone()
+                        if row:
+                            return {"id": row[0], "name": row[1], "domain": row[2], "status": "EXISTING"}
+                    
+                    comp_id = f"cl{uuid.uuid4().hex[:20]}"
+                    website = f"https://{domain}" if domain else None
+                    
+                    cur.execute(
+                        """
+                        INSERT INTO company (id, name, domain, website, city, description, "ownerId", source, "createdAt", "updatedAt")
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, 'IMPORT', NOW(), NOW())
+                        RETURNING id, name, domain;
+                        """,
+                        (comp_id, name, domain, website, location, summary, author_id)
+                    )
+                    row = cur.fetchone()
+                    conn.commit()
+                    logger.info(f"[CompAI CRM] Successfully created company {name} ({comp_id}) in Neon DB.")
+                    return {"id": row[0], "name": row[1], "domain": row[2], "status": "CREATED"}
         except Exception as e:
-            logger.warning(f"[CompAI CRM] Unexpected error logging company {name}: {e}. Operating in standalone/log mode.")
-        
-        return {"id": f"comp_{domain}", "name": name, "domain": domain, "status": "LOGGED_LOCAL"}
+            logger.warning(f"[CompAI CRM] Direct Neon DB log warning for company {name}: {e}.")
+            return {"id": f"comp_{domain}", "name": name, "domain": domain, "status": "LOGGED_LOCAL"}
 
     def create_or_update_contact(self, company_id: str, name: str, email: str, title: str, pitch_draft: str) -> Dict[str, Any]:
         """
-        Logs a lead contact (Founder/CTO) in Comp AI CRM with evidence and personalized pitch.
-        Logs a warning and returns a fallback dictionary if the server is offline or fails.
+        Logs a lead contact (Founder/CTO) in Neon DB with AI pitch note.
         """
-        endpoint = f"{self.api_url}/contacts"
-        payload = {
-            "companyId": company_id,
-            "name": name,
-            "email": email,
-            "title": title,
-            "status": "NEW_LEAD",
-            "notes": f"AI Personalized Pitch:\n{pitch_draft}"
-        }
-        try:
-            logger.info(f"[CompAI CRM] Logging contact {name} <{email}>...")
-            response = requests.post(endpoint, json=payload, headers=self.headers, timeout=5)
-            response.raise_for_status()
-            if response.status_code in [200, 201]:
-                return response.json()
-        except requests.RequestException as e:
-            logger.warning(f"[CompAI CRM] Failed to log contact {name} due to error: {e}. Operating in standalone/log mode.")
-        except Exception as e:
-            logger.warning(f"[CompAI CRM] Unexpected error logging contact {name}: {e}. Operating in standalone/log mode.")
+        logger.info(f"[CompAI CRM] Logging contact {name} <{email}> in Neon DB...")
+        parts = (name or "").strip().split(" ")
+        first_name = parts[0] or "Founder"
+        last_name = " ".join(parts[1:]) if len(parts) > 1 else None
 
-        return {"id": f"contact_{email}", "name": name, "email": email, "status": "NEW_LEAD"}
+        actual_comp_id = company_id if company_id and not company_id.startswith("comp_") else None
+
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cur:
+                    author_id = self._get_default_author_id(cur)
+                    
+                    if email:
+                        cur.execute('SELECT id, email FROM contact WHERE email = %s AND "archivedAt" IS NULL LIMIT 1;', (email,))
+                        row = cur.fetchone()
+                        if row:
+                            return {"id": row[0], "email": row[1], "status": "EXISTING"}
+
+                    contact_id = f"cl{uuid.uuid4().hex[:20]}"
+                    cur.execute(
+                        """
+                        INSERT INTO contact (id, "firstName", "lastName", email, title, "companyId", "ownerId", source, "createdAt", "updatedAt")
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, 'IMPORT', NOW(), NOW())
+                        RETURNING id, email;
+                        """,
+                        (contact_id, first_name, last_name, email, title, actual_comp_id, author_id)
+                    )
+                    c_row = cur.fetchone()
+
+                    # Add pitch note activity if provided
+                    if pitch_draft and c_row:
+                        act_id = f"cl{uuid.uuid4().hex[:20]}"
+                        cur.execute(
+                            """
+                            INSERT INTO activity (id, type, body, "contactId", "companyId", "createdById", "createdAt", "updatedAt")
+                            VALUES (%s, 'NOTE', %s, %s, %s, %s, NOW(), NOW());
+                            """,
+                            (act_id, f"AI Personalized Pitch:\n{pitch_draft}", c_row[0], actual_comp_id, author_id)
+                        )
+
+                    conn.commit()
+                    logger.info(f"[CompAI CRM] Successfully created contact {name} ({contact_id}) in Neon DB.")
+                    return {"id": c_row[0], "email": c_row[1], "status": "CREATED"}
+        except Exception as e:
+            logger.warning(f"[CompAI CRM] Direct Neon DB log warning for contact {name}: {e}.")
+            return {"id": f"contact_{email}", "name": name, "email": email, "status": "NEW_LEAD"}
 
     def log_interaction(self, contact_id: str, action_type: str, content: str) -> None:
         """
-        Logs email outreach, responses, or follow-ups in Comp AI CRM's durable memory.
-        Logs a warning if the server is offline or fails.
+        Logs outreach activities in Neon DB.
         """
-        logger.info(f"[CompAI CRM] Logging interaction '{action_type}' for contact {contact_id}.")
-        endpoint = f"{self.api_url}/interactions"
-        payload = {
-            "contactId": contact_id,
-            "type": action_type, # e.g. 'EMAIL_SENT', 'REPLY_RECEIVED'
-            "content": content
-        }
+        logger.info(f"[CompAI CRM] Logging interaction '{action_type}' for contact {contact_id} in Neon DB.")
         try:
-            response = requests.post(endpoint, json=payload, headers=self.headers, timeout=5)
-            response.raise_for_status()
-        except requests.RequestException as e:
-            logger.warning(f"[CompAI CRM] Failed to log interaction for contact {contact_id} due to request error: {e}.")
+            actual_contact_id = contact_id if contact_id and not contact_id.startswith("contact_") else None
+            if not actual_contact_id:
+                return
+
+            with self._get_connection() as conn:
+                with conn.cursor() as cur:
+                    author_id = self._get_default_author_id(cur)
+                    act_id = f"cl{uuid.uuid4().hex[:20]}"
+                    cur.execute(
+                        """
+                        INSERT INTO activity (id, type, body, "contactId", "createdById", "createdAt", "updatedAt")
+                        VALUES (%s, 'EMAIL', %s, %s, %s, NOW(), NOW());
+                        """,
+                        (act_id, f"Outreach Action [{action_type}]:\n{content}", actual_contact_id, author_id)
+                    )
+                    conn.commit()
         except Exception as e:
-            logger.warning(f"[CompAI CRM] Unexpected error logging interaction for contact {contact_id}: {e}.")
+            logger.warning(f"[CompAI CRM] Failed to log interaction in Neon DB: {e}.")

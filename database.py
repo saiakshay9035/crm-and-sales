@@ -63,6 +63,26 @@ def get_lead_by_id(lead_id: str):
         return dict(row) if row else None
 
 def add_lead(lead_data: dict):
+    # Strict DB guard against generic emails and aggregator domains
+    from scraper import GENERIC_EMAIL_PREFIXES, AGGREGATOR_DOMAINS
+    
+    email = (lead_data.get('email') or '').lower().strip()
+    founder_name = (lead_data.get('founder_name') or '').strip()
+    domain = (lead_data.get('domain') or '').lower().strip()
+    
+    local_part = email.split("@")[0] if "@" in email else ""
+    if local_part in GENERIC_EMAIL_PREFIXES:
+        print(f"[DB Guard Rejected] Generic email prefix '{local_part}@' for lead {domain}")
+        return False
+        
+    if not founder_name or founder_name in ["Founder", "Email Contacts", "Founder & CEO", "Admin", "Support"] or len(founder_name.split()) < 2:
+        print(f"[DB Guard Rejected] Generic founder name '{founder_name}' for lead {domain}")
+        return False
+        
+    if any(agg in domain for agg in AGGREGATOR_DOMAINS) or any(agg in email for agg in AGGREGATOR_DOMAINS):
+        print(f"[DB Guard Rejected] Aggregator domain '{domain}' / '{email}'")
+        return False
+
     with _lock:
         with get_connection() as conn:
             conn.execute('''
@@ -84,6 +104,8 @@ def add_lead(lead_data: dict):
                 lead_data.get('status', 'DRAFT_REVIEW')
             ))
             conn.commit()
+    return True
+
 
 def update_lead_status(lead_id: str, status: str):
     with _lock:

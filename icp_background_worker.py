@@ -6,7 +6,6 @@ from typing import Dict, Any
 
 from scraper import StartupLeadScraper
 from enricher import AIProspectEnricher
-from crm_client import CompAICRMClient
 from database import add_lead, get_all_leads
 
 logging.basicConfig(level=logging.INFO)
@@ -17,14 +16,13 @@ class ICPBackgroundWorker:
     """
     Autonomous background worker for Pre-Seed / Seed SaaS founders (<10 team).
     Continuously searches target locations (US, AUS, EU, Dubai), enriches pitches,
-    logs to Comp AI CRM, and populates SQLite database for human approval.
+    and populates SQLite database for human approval.
     """
 
-    def __init__(self, interval_seconds: int = 300):
+    def __init__(self, interval_seconds: int = 60):
         self.interval_seconds = interval_seconds
         self.scraper = StartupLeadScraper()
         self.enricher = AIProspectEnricher()
-        self.crm = CompAICRMClient()
         
         self._thread = None
         self._stop_event = threading.Event()
@@ -41,7 +39,10 @@ class ICPBackgroundWorker:
             "Y Combinator B2B SaaS founder US AUS EU Dubai",
             "Pre-seed SaaS startup founder San Francisco Sydney Dubai",
             "Early stage SaaS founder CEO team under 10",
-            "Angel invested SaaS startup CEO Sydney Dubai San Francisco"
+            "Angel invested SaaS startup CEO Sydney Dubai San Francisco",
+            "Stealth AI SaaS startup founder contact email",
+            "Series A B2B SaaS founder CEO contact",
+            "DevOps AI tool startup founder email US EU"
         ]
         self._query_index = 0
 
@@ -80,8 +81,7 @@ class ICPBackgroundWorker:
 
     def _run_loop(self):
         """Main execution loop."""
-        # Initial wait of 5 seconds on startup
-        time.sleep(5)
+        time.sleep(2)
 
         while not self._stop_event.is_set():
             query = self.queries[self._query_index % len(self.queries)]
@@ -104,7 +104,7 @@ class ICPBackgroundWorker:
                     if not domain or domain in existing_domains:
                         continue
 
-                    # 1. AI Pitch Personalization First
+                    # 2. AI Pitch Personalization First
                     if not lead.get("pitch"):
                         pitch = self.enricher.generate_pitch(
                             founder_name=lead["founder_name"],
@@ -114,7 +114,7 @@ class ICPBackgroundWorker:
                         )
                         lead["pitch"] = pitch
 
-                    # 2. Strict Email Deliverability Verification
+                    # 3. Strict Email Deliverability Verification
                     from scraper import verify_strict_email_deliverability
                     deliv_check = verify_strict_email_deliverability(
                         email=lead["email"],
@@ -130,24 +130,6 @@ class ICPBackgroundWorker:
                         lead["status"] = "LOW_DELIVERABILITY_FLAGGED"
                         add_lead(lead)
                         continue
-
-                    # 3. Log to Comp AI CRM
-                    try:
-                        comp_rec = self.crm.create_or_update_company(
-                            name=lead["company_name"],
-                            domain=lead["domain"],
-                            location=lead["location"],
-                            summary=lead["tech_summary"]
-                        )
-                        self.crm.create_or_update_contact(
-                            company_id=comp_rec.get("id", "comp_temp"),
-                            name=lead["founder_name"],
-                            email=lead["email"],
-                            title=lead["founder_title"],
-                            pitch_draft=lead["pitch"]
-                        )
-                    except Exception as crm_err:
-                        logger.warning(f"[ICP Worker Daemon] CRM log warning: {crm_err}")
 
                     # 4. Promote to Human-in-the-Loop Dashboard for Final Email Review
                     lead["status"] = "DRAFT_REVIEW"
@@ -171,4 +153,4 @@ class ICPBackgroundWorker:
 
 
 # Global singleton instance
-worker_instance = ICPBackgroundWorker(interval_seconds=300)
+worker_instance = ICPBackgroundWorker(interval_seconds=60)

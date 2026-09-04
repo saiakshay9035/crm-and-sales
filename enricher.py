@@ -50,12 +50,11 @@ class AIProspectEnricher:
     def __init__(self):
         self.provider = settings.LLM_PROVIDER.lower()
 
-    @retry_request
     def _call_ollama(self, prompt: str) -> str:
         res = requests.post(
             f"{settings.OLLAMA_BASE_URL}/api/generate",
             json={"model": settings.OLLAMA_MODEL, "prompt": prompt, "stream": False},
-            timeout=10
+            timeout=2
         )
         res.raise_for_status()
         return res.json().get("response", "").strip()
