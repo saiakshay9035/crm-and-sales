@@ -1,7 +1,9 @@
+import html
 import logging
 import time
-import html
+
 import requests
+
 from config import settings
 
 logging.basicConfig(level=logging.INFO)

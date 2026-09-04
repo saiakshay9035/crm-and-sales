@@ -1,8 +1,10 @@
+import logging
 import os
 import sys
-import logging
+
+from composio import Action, ComposioToolSet
+
 from config import settings
-from composio import ComposioToolSet, Action, App
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("RealEmailTest")

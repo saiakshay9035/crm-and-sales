@@ -1,7 +1,10 @@
+from unittest.mock import patch
+
 import pytest
 import responses
-from unittest.mock import patch
+
 from enricher import AIProspectEnricher
+
 
 @pytest.fixture
 def enricher():

@@ -1,7 +1,8 @@
+import logging
 import os
 import sys
-import logging
-from email_service import EmailService, EmailError
+
+from email_service import EmailError, EmailService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ResendEmail")

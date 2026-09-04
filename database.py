@@ -1,9 +1,8 @@
-import sqlite3
 import json
 import os
-import threading
-
 import shutil
+import sqlite3
+import threading
 
 is_serverless = bool(os.environ.get('NETLIFY') or os.environ.get('VERCEL') or os.environ.get('AWS_LAMBDA_FUNCTION_NAME') or os.environ.get('LAMBDA_TASK_ROOT'))
 DB_PATH = '/tmp/leads.db' if is_serverless else os.environ.get('DB_PATH', 'leads.db')
@@ -24,9 +23,8 @@ def get_connection():
 
 
 def init_db():
-    with _lock:
-        with get_connection() as conn:
-            conn.execute('''
+    with _lock, get_connection() as conn:
+        conn.execute('''
                 CREATE TABLE IF NOT EXISTS leads (
                     id TEXT PRIMARY KEY,
                     company_name TEXT,
@@ -43,15 +41,15 @@ def init_db():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
-            # Migration check for existing databases
-            cursor = conn.execute("PRAGMA table_info(leads)")
-            columns = [row[1] for row in cursor.fetchall()]
-            if 'deliverability_score' not in columns:
-                conn.execute("ALTER TABLE leads ADD COLUMN deliverability_score INTEGER")
-            if 'deliverability_status' not in columns:
-                conn.execute("ALTER TABLE leads ADD COLUMN deliverability_status TEXT")
-            
-            conn.execute('''
+        # Migration check for existing databases
+        cursor = conn.execute("PRAGMA table_info(leads)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'deliverability_score' not in columns:
+            conn.execute("ALTER TABLE leads ADD COLUMN deliverability_score INTEGER")
+        if 'deliverability_status' not in columns:
+            conn.execute("ALTER TABLE leads ADD COLUMN deliverability_status TEXT")
+        
+        conn.execute('''
                 CREATE TABLE IF NOT EXISTS email_log (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     lead_id TEXT,
@@ -61,7 +59,7 @@ def init_db():
                     FOREIGN KEY(lead_id) REFERENCES leads(id)
                 )
             ''')
-            conn.commit()
+        conn.commit()
 
 def get_all_leads():
     with get_connection() as conn:
@@ -76,7 +74,7 @@ def get_lead_by_id(lead_id: str):
 
 def add_lead(lead_data: dict):
     # Strict DB guard against generic emails and aggregator domains
-    from scraper import GENERIC_EMAIL_PREFIXES, AGGREGATOR_DOMAINS
+    from scraper import AGGREGATOR_DOMAINS, GENERIC_EMAIL_PREFIXES
     
     email = (lead_data.get('email') or '').lower().strip()
     founder_name = (lead_data.get('founder_name') or '').strip()
@@ -120,34 +118,30 @@ def add_lead(lead_data: dict):
 
 
 def update_lead_status(lead_id: str, status: str):
-    with _lock:
-        with get_connection() as conn:
-            conn.execute('UPDATE leads SET status = ? WHERE id = ?', (status, lead_id))
-            conn.commit()
+    with _lock, get_connection() as conn:
+        conn.execute('UPDATE leads SET status = ? WHERE id = ?', (status, lead_id))
+        conn.commit()
 
 def remove_lead(lead_id: str):
-    with _lock:
-        with get_connection() as conn:
-            conn.execute('DELETE FROM leads WHERE id = ?', (lead_id,))
-            conn.commit()
+    with _lock, get_connection() as conn:
+        conn.execute('DELETE FROM leads WHERE id = ?', (lead_id,))
+        conn.commit()
 
 def log_email_sent(lead_id: str, resend_id: str, status: str = 'SENT'):
-    with _lock:
-        with get_connection() as conn:
-            conn.execute('''
+    with _lock, get_connection() as conn:
+        conn.execute('''
                 INSERT INTO email_log (lead_id, status, resend_id)
                 VALUES (?, ?, ?)
             ''', (lead_id, status, resend_id))
-            conn.commit()
+        conn.commit()
 
 def clear_stub_leads():
     """Removes sample/fake demo leads from the database."""
     stub_domains = ['nexusai.io', 'finpulse.ae', 'cloudscalesydney.com.au', 'biohealth.de']
-    with _lock:
-        with get_connection() as conn:
-            for domain in stub_domains:
-                conn.execute('DELETE FROM leads WHERE domain = ?', (domain,))
-            conn.commit()
+    with _lock, get_connection() as conn:
+        for domain in stub_domains:
+            conn.execute('DELETE FROM leads WHERE domain = ?', (domain,))
+        conn.commit()
 
 def migrate_from_json(json_path: str):
     if not os.path.exists(json_path):

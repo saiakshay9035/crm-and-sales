@@ -1,7 +1,9 @@
 import os
-import pytest
-import tempfile
 import sqlite3
+import tempfile
+
+import pytest
+
 
 @pytest.fixture(autouse=True)
 def mock_env_vars(monkeypatch):

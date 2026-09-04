@@ -1,17 +1,15 @@
-import re
-import uuid
 import html
 import logging
+import re
 import socket
+import uuid
+from typing import Any
 from urllib.parse import urlparse
-from typing import List, Dict, Any
 
+import dns.resolver
 import requests
 from bs4 import BeautifulSoup
-import dns.resolver
 from ddgs import DDGS
-
-from config import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("LiveLeadScraper")
@@ -39,7 +37,7 @@ GENERIC_EMAIL_PREFIXES = {
     "privacy", "jobs", "careers", "press", "inquiries", "you", "user"
 }
 
-def check_domain_mx_details(domain: str) -> Dict[str, Any]:
+def check_domain_mx_details(domain: str) -> dict[str, Any]:
     """Queries DNS for actual MX records and server hostnames."""
     if not domain or "." not in domain:
         return {"has_mx": False, "mx_hosts": [], "mx_count": 0}
@@ -63,7 +61,7 @@ def verify_domain_mx(domain: str) -> bool:
     """Verifies whether a domain has active MX (Mail Exchange) records."""
     return check_domain_mx_details(domain)["has_mx"]
 
-def verify_strict_email_deliverability(email: str, domain: str, founder_name: str) -> Dict[str, Any]:
+def verify_strict_email_deliverability(email: str, domain: str, founder_name: str) -> dict[str, Any]:
     """
     Strict real-time email verifier using dynamic DNS MX queries:
     - Rejects generic 'contact@', 'support@', 'info@' emails.
@@ -112,7 +110,7 @@ def verify_strict_email_deliverability(email: str, domain: str, founder_name: st
         "mx_details": mx_info
     }
 
-def extract_emails_from_text(text: str) -> List[str]:
+def extract_emails_from_text(text: str) -> list[str]:
     """Finds non-generic email addresses in raw text."""
     email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
     found = re.findall(email_pattern, text)
@@ -123,7 +121,7 @@ def extract_emails_from_text(text: str) -> List[str]:
     ]
     return list(set(valid))
 
-def scrape_company_website(domain: str) -> Dict[str, Any]:
+def scrape_company_website(domain: str) -> dict[str, Any]:
     """Scrapes landing page of a company domain to extract description and personal emails."""
     clean_domain = domain.lower().replace("https://", "").replace("http://", "").split("/")[0].strip()
     url = f"https://{clean_domain}"
@@ -141,9 +139,9 @@ def scrape_company_website(domain: str) -> Dict[str, Any]:
             title_tag = soup.find("title")
             info["title"] = title_tag.get_text().strip() if title_tag else ""
             
-            meta_desc = soup.find("meta", attrs={"name": re.compile(r"description", re.I)})
+            meta_desc = soup.find("meta", attrs={"name": re.compile(r"description", re.IGNORECASE)})
             if not meta_desc:
-                meta_desc = soup.find("meta", attrs={"property": re.compile(r"og:description", re.I)})
+                meta_desc = soup.find("meta", attrs={"property": re.compile(r"og:description", re.IGNORECASE)})
             
             summary_text = meta_desc.get("content", "").strip() if meta_desc else ""
             
@@ -166,7 +164,7 @@ class StartupLeadScraper:
     Enforces strict personal founder emails and verified MX domains.
     """
 
-    def search_real_leads(self, query: str = "Y Combinator AI startup founder", limit: int = 5) -> List[Dict[str, Any]]:
+    def search_real_leads(self, query: str = "Y Combinator AI startup founder", limit: int = 5) -> list[dict[str, Any]]:
         """
         Searches live web for real tech startup founders & companies matching query.
         Returns verified lead objects with named founders.
@@ -274,10 +272,10 @@ class StartupLeadScraper:
 
         return results[:limit]
 
-    def scrape_yc_startups(self, sample_limit: int = 5) -> List[Dict[str, Any]]:
+    def scrape_yc_startups(self, sample_limit: int = 5) -> list[dict[str, Any]]:
         return self.search_real_leads("Y Combinator AI startup founder", limit=sample_limit)
 
-    def _parse_yc_company_page(self, url: str, snippet: str) -> Dict[str, Any]:
+    def _parse_yc_company_page(self, url: str, snippet: str) -> dict[str, Any]:
         """Scrapes an actual YC company profile page for real founder details."""
         try:
             company_slug = url.split("/companies/")[-1].strip("/")
@@ -338,7 +336,7 @@ class StartupLeadScraper:
             logger.debug(f"Failed to scrape YC page {url}: {e}")
         return None
 
-    def _get_curated_real_startups(self, count: int) -> List[Dict[str, Any]]:
+    def _get_curated_real_startups(self, count: int) -> list[dict[str, Any]]:
         """Verified real active startup founders with personal email addresses."""
         from enricher import AIProspectEnricher
         enricher = AIProspectEnricher()

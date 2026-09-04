@@ -1,8 +1,9 @@
-import time
 import logging
-from scraper import StartupLeadScraper
+import time
+
 from enricher import AIProspectEnricher
 from outreach import EmailOutreachManager
+from scraper import StartupLeadScraper
 
 logging.basicConfig(
     level=logging.INFO,

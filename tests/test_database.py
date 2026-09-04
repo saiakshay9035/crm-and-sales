@@ -1,8 +1,10 @@
-import pytest
 import json
-import tempfile
 import os
+import tempfile
 from unittest.mock import patch
+
+import pytest
+
 import database as db
 
 
@@ -80,7 +82,6 @@ def test_log_email_sent(sample_lead):
     # log_email_sent inserts into email_log table, not leads
     db.log_email_sent("test_lead_1", "resend_abc123")
     # Verify by querying email_log directly
-    import sqlite3
     with db.get_connection() as conn:
         cursor = conn.execute("SELECT * FROM email_log WHERE lead_id = ?", ("test_lead_1",))
         row = cursor.fetchone()

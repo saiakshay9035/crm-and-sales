@@ -1,6 +1,6 @@
-import pytest
-from unittest.mock import patch, MagicMock
-from scraper import StartupLeadScraper, verify_domain_mx, scrape_company_website
+from unittest.mock import MagicMock, patch
+
+from scraper import StartupLeadScraper, verify_domain_mx
 
 
 def test_verify_domain_mx_valid():

@@ -1,5 +1,9 @@
 import sqlite3
-from scraper import verify_strict_email_deliverability, AGGREGATOR_DOMAINS, GENERIC_EMAIL_PREFIXES
+
+from scraper import (
+    AGGREGATOR_DOMAINS,
+    GENERIC_EMAIL_PREFIXES,
+)
 
 conn = sqlite3.connect('leads.db')
 cursor = conn.cursor()

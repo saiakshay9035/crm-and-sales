@@ -1,6 +1,6 @@
-import os
 import logging
-from typing import Dict, Any
+from typing import Any
+
 from config import settings
 
 logging.basicConfig(level=logging.INFO)
@@ -12,11 +12,11 @@ class ComposioMCPOutreachManager:
     Endpoint: https://connect.composio.dev/mcp
     Handles 1-click managed OAuth for Gmail, Slack, GitHub, and CRM tools.
     """
-    def __init__(self, api_key: str = None):
+    def __init__(self, api_key: str | None = None):
         self.api_key = api_key or settings.COMPOSIO_API_KEY
         self.mcp_url = "https://connect.composio.dev/mcp"
         
-    def get_mcp_config(self) -> Dict[str, Any]:
+    def get_mcp_config(self) -> dict[str, Any]:
         """Returns standard MCP server config dictionary for client integration."""
         return {
             "mcpServers": {

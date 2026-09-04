@@ -1,5 +1,3 @@
-import os
-import pytest
 
 
 def test_settings_load_from_env(monkeypatch):

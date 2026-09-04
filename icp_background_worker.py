@@ -1,12 +1,11 @@
-import time
-import uuid
 import logging
 import threading
-from typing import Dict, Any
+import time
+from typing import Any
 
-from scraper import StartupLeadScraper
-from enricher import AIProspectEnricher
 from database import add_lead, get_all_leads
+from enricher import AIProspectEnricher
+from scraper import StartupLeadScraper
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ICPBackgroundWorker")
@@ -70,7 +69,7 @@ class ICPBackgroundWorker:
     def is_running(self) -> bool:
         return self._is_active and self._thread is not None and self._thread.is_alive()
 
-    def get_status_dict(self) -> Dict[str, Any]:
+    def get_status_dict(self) -> dict[str, Any]:
         return {
             "running": self.is_running(),
             "status": "ACTIVE 🟢" if self.is_running() else "STOPPED 🔴",

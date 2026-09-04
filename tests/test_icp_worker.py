@@ -1,6 +1,6 @@
 import time
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+
 from icp_background_worker import ICPBackgroundWorker
 
 

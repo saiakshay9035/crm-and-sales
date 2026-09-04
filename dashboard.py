@@ -1,22 +1,27 @@
+import html
 import os
 import time
-import html
-import requests
-from typing import List, Optional
-from fastapi import FastAPI, Request, Depends, HTTPException, BackgroundTasks, status
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-import uvicorn
 from contextlib import asynccontextmanager
 
-from config import settings
-from database import (
-    init_db, get_all_leads, get_lead_by_id, update_lead_status, 
-    remove_lead, log_email_sent, migrate_from_json, add_lead as db_add_lead
-)
+import uvicorn
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel
 
+from config import settings
+from database import add_lead as db_add_lead
+from database import (
+    get_all_leads,
+    get_lead_by_id,
+    init_db,
+    log_email_sent,
+    migrate_from_json,
+    remove_lead,
+    update_lead_status,
+)
 from email_service import EmailService, EmailServiceError
+
 
 # --- Rate Limiter ---
 class RateLimiter:
@@ -37,6 +42,7 @@ class RateLimiter:
 send_limiter = RateLimiter(max_requests=5, window_seconds=60)
 
 from icp_background_worker import worker_instance
+
 
 # --- Lifespan ---
 @asynccontextmanager
@@ -70,15 +76,14 @@ app.add_middleware(
 # --- Auth Middleware ---
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    # Only protect API routes, except health
-    if request.url.path.startswith("/api/") and request.url.path != "/api/health":
-        if settings.DASHBOARD_AUTH_TOKEN:
-            auth_header = request.headers.get("Authorization")
-            if not auth_header or not auth_header.startswith("Bearer "):
-                return JSONResponse({"success": False, "error": "Unauthorized"}, status_code=401)
-            token = auth_header.split("Bearer ")[1]
-            if token != settings.DASHBOARD_AUTH_TOKEN:
-                return JSONResponse({"success": False, "error": "Forbidden"}, status_code=403)
+    if request.url.path.startswith("/api/") and request.url.path != "/api/health" and settings.DASHBOARD_AUTH_TOKEN:
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return JSONResponse({"success": False, "error": "Unauthorized"}, status_code=401)
+        token = auth_header.split("Bearer ")[1]
+        if token != settings.DASHBOARD_AUTH_TOKEN:
+            return JSONResponse({"success": False, "error": "Forbidden"}, status_code=403)
+
     
     response = await call_next(request)
     return response
@@ -86,7 +91,7 @@ async def auth_middleware(request: Request, call_next):
 # --- Pydantic Models ---
 class LeadIdRequest(BaseModel):
     id: str
-    pitch: Optional[str] = None
+    pitch: str | None = None
 
 class AddLeadRequest(BaseModel):
     id: str
@@ -198,7 +203,7 @@ def send_lead(req: LeadIdRequest, request: Request):
         
         # Also update pitch if it was edited
         if req.pitch and req.pitch != lead['pitch']:
-            from database import get_connection, _lock
+            from database import _lock, get_connection
             with _lock:
                 with get_connection() as conn:
                     conn.execute("UPDATE leads SET pitch = ? WHERE id = ?", (req.pitch, req.id))
@@ -232,8 +237,8 @@ def toggle_auto_scraper():
     return worker_instance.get_status_dict()
 
 class DiscoverLeadsRequest(BaseModel):
-    query: Optional[str] = "Y Combinator AI startup founder"
-    limit: Optional[int] = 4
+    query: str | None = "Y Combinator AI startup founder"
+    limit: int | None = 4
 
 @app.post("/api/add-lead")
 def add_lead_endpoint(req: AddLeadRequest):
@@ -246,8 +251,8 @@ def add_lead_endpoint(req: AddLeadRequest):
 @app.post("/api/discover-leads")
 def discover_leads_endpoint(req: DiscoverLeadsRequest):
     try:
-        from scraper import StartupLeadScraper
         from enricher import AIProspectEnricher
+        from scraper import StartupLeadScraper
         
         scraper = StartupLeadScraper()
         enricher = AIProspectEnricher()

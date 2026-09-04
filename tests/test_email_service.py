@@ -1,7 +1,9 @@
+from unittest.mock import patch
+
 import pytest
 import responses
-from unittest.mock import patch, MagicMock
-from email_service import EmailService, EmailServiceError
+
+from email_service import EmailService
 
 
 @pytest.fixture

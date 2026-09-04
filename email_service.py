@@ -1,7 +1,9 @@
 import logging
 import smtplib
 from email.message import EmailMessage
+
 import requests
+
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -9,7 +11,6 @@ logger = logging.getLogger(__name__)
 
 class EmailServiceError(Exception):
     """Custom exception for email sending errors."""
-    pass
 
 
 # Alias for backward compatibility
@@ -25,9 +26,9 @@ class EmailService:
 
     def __init__(
         self,
-        resend_api_key: str = None,
-        from_email: str = None,
-        business_address: str = None,
+        resend_api_key: str | None = None,
+        from_email: str | None = None,
+        business_address: str | None = None,
     ):
         self.resend_api_key = resend_api_key if resend_api_key is not None else settings.RESEND_API_KEY
         self.resend_from = from_email if from_email is not None else settings.RESEND_FROM_EMAIL
@@ -141,7 +142,7 @@ class EmailService:
         if not has_smtp:
             try:
                 return self.send_via_smtp(to_email, subject, body_text or body_html, body_html)
-            except EmailServiceError as e:
+            except EmailServiceError:
                 pass
 
         raise EmailServiceError(f"All email dispatch methods failed for {to_email}.")

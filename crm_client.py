@@ -1,24 +1,24 @@
-import os
 import logging
+import os
 import uuid
-import psycopg2
-from typing import Dict, Any, Optional
-from config import settings
+from typing import Any
 
+import psycopg2
+
+from config import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("CompAICRM")
 
 class CRMError(Exception):
     """Custom exception for CRM-related errors."""
-    pass
 
 class CompAICRMClient:
     """
     Direct Neon PostgreSQL Integration Client for Comp AI CRM.
     Captures companies, contacts, pitches, and outreach activities directly into Neon DB.
     """
-    def __init__(self, dsn: Optional[str] = None) -> None:
+    def __init__(self, dsn: str | None = None) -> None:
         self.dsn = dsn or getattr(settings, "NEON_DSN", "") or os.environ.get("NEON_DSN", "")
 
 
@@ -35,7 +35,7 @@ class CompAICRMClient:
             pass
         return "seed-ada-okafor"
 
-    def create_or_update_company(self, name: str, domain: str, location: str, summary: str) -> Dict[str, Any]:
+    def create_or_update_company(self, name: str, domain: str, location: str, summary: str) -> dict[str, Any]:
         """
         Creates or updates a target startup company directly in Neon PostgreSQL.
         """
@@ -70,7 +70,7 @@ class CompAICRMClient:
             logger.warning(f"[CompAI CRM] Direct Neon DB log warning for company {name}: {e}.")
             return {"id": f"comp_{domain}", "name": name, "domain": domain, "status": "LOGGED_LOCAL"}
 
-    def create_or_update_contact(self, company_id: str, name: str, email: str, title: str, pitch_draft: str) -> Dict[str, Any]:
+    def create_or_update_contact(self, company_id: str, name: str, email: str, title: str, pitch_draft: str) -> dict[str, Any]:
         """
         Logs a lead contact (Founder/CTO) in Neon DB with AI pitch note.
         """

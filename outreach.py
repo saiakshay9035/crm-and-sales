@@ -1,6 +1,7 @@
 import logging
-from config import settings
-from email_service import EmailService, EmailServiceError as EmailError
+
+from email_service import EmailService
+from email_service import EmailServiceError as EmailError
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("EmailOutreach")
