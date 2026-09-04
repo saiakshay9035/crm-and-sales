@@ -166,11 +166,45 @@ def remove_lead_endpoint(req: LeadIdRequest):
     except Exception as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
+class DiscoverLeadsRequest(BaseModel):
+    query: Optional[str] = "Y Combinator AI startup founder"
+    limit: Optional[int] = 4
+
 @app.post("/api/add-lead")
 def add_lead_endpoint(req: AddLeadRequest):
     try:
         db_add_lead(req.dict())
         return {"success": True}
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/api/discover-leads")
+def discover_leads_endpoint(req: DiscoverLeadsRequest):
+    try:
+        from scraper import StartupLeadScraper
+        from enricher import AIProspectEnricher
+        
+        scraper = StartupLeadScraper()
+        enricher = AIProspectEnricher()
+        
+        query = req.query if req.query else "Y Combinator AI startup founder"
+        limit = req.limit if req.limit else 4
+        
+        raw_leads = scraper.search_real_leads(query=query, limit=limit)
+        
+        enriched_leads = []
+        for lead in raw_leads:
+            pitch = enricher.generate_pitch(
+                founder_name=lead['founder_name'],
+                company_name=lead['company_name'],
+                location=lead['location'],
+                summary=lead['tech_summary']
+            )
+            lead['pitch'] = pitch
+            db_add_lead(lead)
+            enriched_leads.append(lead)
+            
+        return {"success": True, "count": len(enriched_leads), "leads": enriched_leads}
     except Exception as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
@@ -354,10 +388,10 @@ def serve_dashboard():
         }}
         
         /* Modal & Toasts */
-        #auth-modal {{
+        .modal-overlay {{
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.8);
+            background: rgba(0,0,0,0.85);
             display: flex;
             justify-content: center;
             align-items: center;
@@ -366,20 +400,33 @@ def serve_dashboard():
         .modal-content {{
             background: var(--card-bg);
             padding: 30px;
-            border-radius: 12px;
+            border-radius: 14px;
             border: 1px solid var(--border-color);
-            text-align: center;
+            text-align: left;
+            width: 100%;
         }}
+        .modal-content h2 {{ margin-top: 0; }}
         .modal-content input {{
             width: 100%;
-            padding: 10px;
+            padding: 12px;
             margin: 15px 0;
-            border-radius: 6px;
+            border-radius: 8px;
             border: 1px solid var(--border-color);
             background: #090d16;
             color: white;
             box-sizing: border-box;
+            font-size: 14px;
         }}
+        .preset-btn {{
+            background: #1e293b;
+            color: #94a3b8;
+            border: 1px solid var(--border-color);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+        }}
+        .preset-btn:hover {{ background: #334155; color: white; }}
         .toast-container {{
             position: fixed;
             bottom: 20px;
@@ -418,12 +465,34 @@ def serve_dashboard():
     </style>
 </head>
 <body>
-    <div id="auth-modal" style="display: none;">
-        <div class="modal-content">
+    <div id="auth-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content" style="max-width: 400px; text-align: center;">
             <h2>Authentication Required</h2>
             <p style="color: var(--text-secondary)">Please enter your dashboard token</p>
             <input type="password" id="auth-token" placeholder="Enter Token..." />
             <button class="btn btn-send" onclick="saveToken()">Login</button>
+        </div>
+    </div>
+
+    <div id="discover-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content" style="max-width: 520px;">
+            <h2>🔍 Discover Real Live ICP Founders</h2>
+            <p style="color: var(--text-secondary); font-size: 13px; line-height: 1.4;">
+                Scrapes live startup directories (YCombinator, ProductHunt) & website landing pages. Verifies active domain MX records and generates personalized AI pitches.
+            </p>
+            <label style="font-size: 12px; color: var(--text-secondary); font-weight: 600;">SEARCH NICHE & LOCATION:</label>
+            <input type="text" id="discover-query" placeholder="e.g. Y Combinator 2024 AI startup founder" value="Y Combinator 2024 AI startup founder" />
+            
+            <div style="display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap;">
+                <button class="preset-btn" onclick="setPreset('Y Combinator 2024 AI startup founder')">🚀 YC AI Startups</button>
+                <button class="preset-btn" onclick="setPreset('Fintech startup CEO US Dubai')">💳 Fintech Founders</button>
+                <button class="preset-btn" onclick="setPreset('DevOps SaaS founder San Francisco')">⚡ B2B SaaS Founders</button>
+            </div>
+            
+            <div style="display: flex; gap: 10px;">
+                <button class="btn btn-send" id="discover-submit-btn" onclick="runDiscovery()">Start Live Capture & AI Pitching</button>
+                <button class="btn btn-remove" onclick="closeDiscoverModal()">Cancel</button>
+            </div>
         </div>
     </div>
 
@@ -436,7 +505,7 @@ def serve_dashboard():
                 <p>Review captured ICP founders & approve AI personalized pitches</p>
             </div>
             <div class="status-badge" id="resend-status">
-                Checking Resend...
+                Checking Email Provider...
             </div>
         </header>
 
@@ -453,7 +522,10 @@ def serve_dashboard():
 
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
             <h2 style="font-size: 18px; margin: 0;">Captured Real ICP Founders (Review & Send)</h2>
-            <button class="btn" style="background: var(--accent-color); color: white; width: auto; padding: 10px 20px;" onclick="fetchLeads()">Refresh Leads</button>
+            <div style="display: flex; gap: 10px;">
+                <button class="btn" style="background: var(--success-color); color: white; width: auto; padding: 10px 20px;" onclick="openDiscoverModal()">🔍 Discover Real Leads</button>
+                <button class="btn" style="background: var(--accent-color); color: white; width: auto; padding: 10px 20px;" onclick="fetchLeads()">Refresh Leads</button>
+            </div>
         </div>
 
         <div class="leads-grid" id="leads-container">
@@ -664,6 +736,47 @@ def serve_dashboard():
             }} catch (err) {{
                 showToast('Network error removing lead', 'error');
                 btnElement.disabled = false;
+            }}
+        }}
+
+        function openDiscoverModal() {{
+            document.getElementById('discover-modal').style.display = 'flex';
+        }}
+
+        function closeDiscoverModal() {{
+            document.getElementById('discover-modal').style.display = 'none';
+        }}
+
+        function setPreset(query) {{
+            document.getElementById('discover-query').value = query;
+        }}
+
+        async function runDiscovery() {{
+            const query = document.getElementById('discover-query').value.trim();
+            const btn = document.getElementById('discover-submit-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<div class="spinner"></div> Scraping Live Web & AI Enriching...';
+            showToast('Scraping real founders from live web...', 'success');
+
+            try {{
+                const res = await fetch('/api/discover-leads', {{
+                    method: 'POST',
+                    headers: getHeaders(),
+                    body: JSON.stringify({{ query: query, limit: 4 }})
+                }});
+                const data = await res.json();
+                if(data.success) {{
+                    showToast(`Captured ${{data.count}} Real Live ICP Founders!`);
+                    closeDiscoverModal();
+                    fetchLeads();
+                }} else {{
+                    showToast(data.error || 'Error discovering leads', 'error');
+                }}
+            }} catch(err) {{
+                showToast('Network error during lead discovery', 'error');
+            }} finally {{
+                btn.disabled = false;
+                btn.innerHTML = 'Start Live Capture & AI Pitching';
             }}
         }}
 

@@ -94,6 +94,15 @@ def log_email_sent(lead_id: str, resend_id: str, status: str = 'SENT'):
             ''', (lead_id, status, resend_id))
             conn.commit()
 
+def clear_stub_leads():
+    """Removes sample/fake demo leads from the database."""
+    stub_domains = ['nexusai.io', 'finpulse.ae', 'cloudscalesydney.com.au', 'biohealth.de']
+    with _lock:
+        with get_connection() as conn:
+            for domain in stub_domains:
+                conn.execute('DELETE FROM leads WHERE domain = ?', (domain,))
+            conn.commit()
+
 def migrate_from_json(json_path: str):
     if not os.path.exists(json_path):
         return
