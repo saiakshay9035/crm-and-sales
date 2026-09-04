@@ -3,3 +3,12 @@ __pycache__/
 .env
 .DS_Store
 *.log
+venv/
+.venv/
+lead_store.json
+*.db
+leads.db
+*.sqlite3
+node_modules/
+dist/
+*.egg-info/

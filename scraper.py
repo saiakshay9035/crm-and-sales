@@ -10,16 +10,20 @@ class StartupLeadScraper:
     """
     Scrapes target startups from startup directories (YC, ProductHunt, etc.)
     and parses founder information and company domains.
+    
+    NOTE: This is currently a stub for development and testing purposes. 
+    It returns hardcoded sample data matching the Ideal Customer Profile (ICP).
     """
     def __init__(self):
         self.provider = settings.LLM_PROVIDER
 
     def scrape_yc_startups(self, sample_limit: int = 5) -> List[Dict[str, Any]]:
         """
-        Scrapes or generates structured startup leads targeted for offshore talent placement.
-        In production, uses ScrapeGraphAI or Playwright.
+        Returns structured startup leads targeted for offshore talent placement.
+        Currently returns sample data. In production, this should integrate with
+        tools like Apollo.io, Hunter.io, ScrapeGraphAI or Playwright.
         """
-        logger.info("[Scraper] Searching for high-growth Western/Dubai startups...")
+        logger.info("[Scraper] Fetching high-growth Western/Dubai startup sample data...")
         
         # Highly realistic lead samples matching your ICP (US, AUS, EU, Dubai founders)
         sample_startups = [
@@ -62,3 +66,9 @@ class StartupLeadScraper:
         ]
         
         return sample_startups[:sample_limit]
+
+    async def async_scrape(self, query: str) -> List[Dict[str, Any]]:
+        """
+        Asynchronous scraping method for production integration.
+        """
+        raise NotImplementedError("async_scrape is not implemented yet. Please integrate Apollo.io or Hunter.io for live data scraping.")

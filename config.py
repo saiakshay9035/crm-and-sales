@@ -1,33 +1,39 @@
 import os
-from dataclasses import dataclass
+from pydantic_settings import BaseSettings
+from dotenv import load_dotenv
 
-@dataclass
-class Settings:
+load_dotenv()
+
+class Settings(BaseSettings):
     # LLM Settings (Supports Ollama for 100% free local execution, or Groq/Gemini free tiers)
-    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "ollama")  # "ollama", "groq", "gemini", or "openai"
-    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3")
-    OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    LLM_PROVIDER: str = "ollama"  # "ollama", "groq", "gemini", or "openai"
+    OLLAMA_MODEL: str = "llama3"
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
     
-    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama3-70b-8192")
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "llama3-70b-8192"
     
-    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    OPENAI_API_KEY: str = ""
     
     # Composio API Settings (Managed MCP Gateway: https://connect.composio.dev/mcp)
-    COMPOSIO_API_KEY: str = os.getenv("COMPOSIO_API_KEY", "")
+    COMPOSIO_API_KEY: str = ""
 
     # Resend API Settings (Live Email Engine)
-    RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
-    RESEND_FROM_EMAIL: str = os.getenv("RESEND_FROM_EMAIL", "onboarding@resend.dev")
+    RESEND_API_KEY: str = ""
+    RESEND_FROM_EMAIL: str = "onboarding@resend.dev"
 
     # TryCompAI CRM (Comp AI CRM) Settings
-    CRM_API_URL: str = os.getenv("CRM_API_URL", "http://localhost:3000/api")
-    CRM_API_KEY: str = os.getenv("CRM_API_KEY", "your_comp_crm_key")
+    CRM_API_URL: str = "http://localhost:3000/api"
+    CRM_API_KEY: str = "your_comp_crm_key"
     
     # Email Outreach Settings (SMTP / Free Mailer)
-    SMTP_SERVER: str = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-    SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
-    SMTP_USER: str = os.getenv("SMTP_USER", "your_email@domain.com")
-    SMTP_PASS: str = os.getenv("SMTP_PASS", "your_app_password")
+    SMTP_SERVER: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = "your_email@domain.com"
+    SMTP_PASS: str = "your_app_password"
+    
+    # New settings
+    DASHBOARD_AUTH_TOKEN: str = ""
+    BUSINESS_ADDRESS: str = ""
 
 settings = Settings()

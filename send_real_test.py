@@ -1,4 +1,5 @@
 import os
+import sys
 import logging
 from config import settings
 from composio import ComposioToolSet, Action, App
@@ -12,7 +13,7 @@ def send_real_test_email(recipient_email: str):
     composio_toolset = ComposioToolSet(api_key=settings.COMPOSIO_API_KEY)
     
     subject = "🚀 Live Test: Autonomous AI Lead & Outreach Agent"
-    body = f"""Hi Sai Akshay,
+    body = f"""Hi there,
 
 This is a real live test email sent from your Autonomous AI Lead Generation Agent!
 
@@ -42,7 +43,7 @@ Autonomous AI Lead Agent
         logger.info(f"[Real Test] Result from Composio: {result}")
         print("\n=======================================================")
         print(f"SUCCESS: Test email request dispatched to {recipient_email}!")
-        print("Check your Inbox / Spam folder at saiakshay30@gmail.com")
+        print(f"Check your Inbox / Spam folder at {recipient_email}")
         print("=======================================================\n")
         return result
     except Exception as e:
@@ -55,4 +56,15 @@ Autonomous AI Lead Agent
         return None
 
 if __name__ == "__main__":
-    send_real_test_email("saiakshay30@gmail.com")
+    email = None
+    if len(sys.argv) > 1:
+        email = sys.argv[1]
+    else:
+        email = os.getenv("TEST_EMAIL")
+        
+    if not email:
+        print("Usage: python send_real_test.py <recipient_email>")
+        print("Or set TEST_EMAIL environment variable.")
+        sys.exit(1)
+        
+    send_real_test_email(email)

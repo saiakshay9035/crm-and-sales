@@ -8,7 +8,7 @@ logger = logging.getLogger("ComposioMCPOutreach")
 
 class ComposioMCPOutreachManager:
     """
-    Integrates with Composio's Model Context Protocol (MCP) server
+    EXPERIMENTAL/TODO: Integrates with Composio's Model Context Protocol (MCP) server
     Endpoint: https://connect.composio.dev/mcp
     Handles 1-click managed OAuth for Gmail, Slack, GitHub, and CRM tools.
     """
@@ -32,10 +32,9 @@ class ComposioMCPOutreachManager:
 
     def send_email_via_composio(self, recipient: str, subject: str, body: str) -> bool:
         """
-        Sends email through Composio's managed Gmail MCP Tool.
+        TODO: Sends email through Composio's managed Gmail MCP Tool.
         Triggers 1-click OAuth if authentication is required.
         """
         logger.info(f"[Composio MCP Gateway] Routing email to {recipient} via {self.mcp_url}...")
         logger.info(f"Subject: {subject}")
-        # Managed execution handles authentication automatically
-        return True
+        raise NotImplementedError("Composio MCP email dispatch is experimental and not yet implemented.")
