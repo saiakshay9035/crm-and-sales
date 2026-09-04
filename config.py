@@ -14,7 +14,11 @@ class Settings:
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     
     # Composio API Settings (Managed MCP Gateway: https://connect.composio.dev/mcp)
-    COMPOSIO_API_KEY: str = os.getenv("COMPOSIO_API_KEY", "ck_voTAQE7vjzMCGR-GxLNk")
+    COMPOSIO_API_KEY: str = os.getenv("COMPOSIO_API_KEY", "")
+
+    # Resend API Settings (Live Email Engine)
+    RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
+    RESEND_FROM_EMAIL: str = os.getenv("RESEND_FROM_EMAIL", "onboarding@resend.dev")
 
     # TryCompAI CRM (Comp AI CRM) Settings
     CRM_API_URL: str = os.getenv("CRM_API_URL", "http://localhost:3000/api")

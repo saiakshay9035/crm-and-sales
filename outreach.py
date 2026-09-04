@@ -1,21 +1,23 @@
+import requests
+import json
 import smtplib
 import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from config import settings
-from mcp_outreach import ComposioMCPOutreachManager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("EmailOutreach")
 
 class EmailOutreachManager:
     """
-    Handles automated email dispatch via Composio MCP / SMTP.
-    Includes dry-run protection mode for testing without sending real emails accidentally.
+    Handles automated live email dispatch via Resend API, Composio, or SMTP.
+    Includes dry-run protection mode for testing.
     """
     def __init__(self, dry_run: bool = False):
         self.dry_run = dry_run
-        self.composio_mcp = ComposioMCPOutreachManager(api_key=settings.COMPOSIO_API_KEY)
+        self.resend_api_key = settings.RESEND_API_KEY
+        self.resend_from = settings.RESEND_FROM_EMAIL
 
     def send_email(self, to_email: str, pitch_content: str) -> bool:
         lines = pitch_content.strip().split("\n")
@@ -32,21 +34,40 @@ class EmailOutreachManager:
             logger.info(f"[Email Engine (DRY RUN)] Email queued & logged successfully for {to_email}.")
             return True
 
-        # Live dispatch via Composio MCP Gateway
-        try:
-            logger.info(f"[Email Engine (LIVE VIA COMPOSIO)] Sending email to {to_email} via Composio Gmail...")
-            success = self.composio_mcp.send_email_via_composio(
-                recipient=to_email,
-                subject=subject,
-                body=body
-            )
-            if success:
-                logger.info(f"[Email Engine] Live email successfully dispatched to {to_email}!")
-                return True
-        except Exception as e:
-            logger.error(f"[Email Engine] Composio dispatch error: {e}. Attempting fallback SMTP.")
-            
-        # Fallback SMTP dispatch if configured
+        # 1. Primary Live Dispatch via Resend API
+        if self.resend_api_key:
+            try:
+                logger.info(f"[Email Engine (RESEND LIVE)] Dispatching email to {to_email}...")
+                url = "https://api.resend.com/emails"
+                headers = {
+                    "Authorization": f"Bearer {self.resend_api_key}",
+                    "Content-Type": "application/json"
+                }
+                
+                # HTML formatted body
+                html_body = f"""
+                <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                    {body.replace(chr(10), '<br>')}
+                </div>
+                """
+                
+                payload = {
+                    "from": self.resend_from,
+                    "to": [to_email],
+                    "subject": subject,
+                    "html": html_body
+                }
+                
+                res = requests.post(url, headers=headers, json=payload, timeout=10)
+                if res.status_code in [200, 201]:
+                    logger.info(f"[Email Engine] Live email successfully delivered to {to_email}! Resend ID: {res.json().get('id')}")
+                    return True
+                else:
+                    logger.warning(f"[Email Engine] Resend API Warning ({res.status_code}): {res.text}")
+            except Exception as e:
+                logger.error(f"[Email Engine] Resend exception ({e}). Falling back to SMTP.")
+
+        # 2. Fallback SMTP dispatch
         try:
             msg = MIMEMultipart()
             msg["From"] = settings.SMTP_USER
