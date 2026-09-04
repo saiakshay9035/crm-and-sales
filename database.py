@@ -3,7 +3,7 @@ import json
 import os
 import threading
 
-DB_PATH = 'leads.db'
+DB_PATH = '/tmp/leads.db' if (os.environ.get('VERCEL') or os.environ.get('AWS_LAMBDA_FUNCTION_NAME')) else os.environ.get('DB_PATH', 'leads.db')
 _lock = threading.Lock()
 
 def get_connection():
