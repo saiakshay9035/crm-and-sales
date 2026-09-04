@@ -723,7 +723,8 @@ def serve_dashboard():
                     const pitchBox = document.createElement('div');
                     pitchBox.className = 'pitch-box';
                     pitchBox.id = `pitch-${{lead.id}}`;
-                    pitchBox.textContent = lead.pitch;
+                    const defaultPitch = `Subject: Engineering delivery for ${{lead.company_name}} / Quick question\n\nHi ${{lead.founder_name}},\n\nSaw ${{lead.company_name}} is scaling tech in ${{lead.location}}.\n\nFounders scaling fast often struggle with high local developer salaries and the management drag of tracking remote freelancers who miss sprint deadlines.\n\nWe solve both: We provide senior Indian software engineers AND handle full end-to-end Product & Project Management—so features get delivered on time without taking up your week.\n\nOpen to seeing a 2-minute video on how we manage delivery?\n\nBest,\nSai Akshay`;
+                    pitchBox.textContent = (lead.pitch && lead.pitch.trim().length > 10) ? lead.pitch : defaultPitch;
                     
                     topDiv.appendChild(headerDiv);
                     topDiv.appendChild(founderInfo);

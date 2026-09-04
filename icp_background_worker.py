@@ -104,24 +104,15 @@ class ICPBackgroundWorker:
                     if not domain or domain in existing_domains:
                         continue
 
-                    # 1. First: Log initial record to CRM (CRM First Flow)
-                    lead["status"] = "NEW_CRM_LEAD"
-                    try:
-                        comp_rec = self.crm.create_or_update_company(
-                            name=lead["company_name"],
-                            domain=lead["domain"],
+                    # 1. AI Pitch Personalization First
+                    if not lead.get("pitch"):
+                        pitch = self.enricher.generate_pitch(
+                            founder_name=lead["founder_name"],
+                            company_name=lead["company_name"],
                             location=lead["location"],
                             summary=lead["tech_summary"]
                         )
-                        self.crm.create_or_update_contact(
-                            company_id=comp_rec.get("id", "comp_temp"),
-                            name=lead["founder_name"],
-                            email=lead["email"],
-                            title=lead["founder_title"],
-                            pitch_draft="Pending AI Pitch Enrichment & Verification..."
-                        )
-                    except Exception as crm_err:
-                        logger.warning(f"[ICP Worker Daemon] CRM log warning: {crm_err}")
+                        lead["pitch"] = pitch
 
                     # 2. Strict Email Deliverability Verification
                     from scraper import verify_strict_email_deliverability
@@ -140,14 +131,23 @@ class ICPBackgroundWorker:
                         add_lead(lead)
                         continue
 
-                    # 3. AI Pitch Personalization
-                    pitch = self.enricher.generate_pitch(
-                        founder_name=lead["founder_name"],
-                        company_name=lead["company_name"],
-                        location=lead["location"],
-                        summary=lead["tech_summary"]
-                    )
-                    lead["pitch"] = pitch
+                    # 3. Log to Comp AI CRM
+                    try:
+                        comp_rec = self.crm.create_or_update_company(
+                            name=lead["company_name"],
+                            domain=lead["domain"],
+                            location=lead["location"],
+                            summary=lead["tech_summary"]
+                        )
+                        self.crm.create_or_update_contact(
+                            company_id=comp_rec.get("id", "comp_temp"),
+                            name=lead["founder_name"],
+                            email=lead["email"],
+                            title=lead["founder_title"],
+                            pitch_draft=lead["pitch"]
+                        )
+                    except Exception as crm_err:
+                        logger.warning(f"[ICP Worker Daemon] CRM log warning: {crm_err}")
 
                     # 4. Promote to Human-in-the-Loop Dashboard for Final Email Review
                     lead["status"] = "DRAFT_REVIEW"
