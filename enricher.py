@@ -1,5 +1,6 @@
 import logging
 import time
+import html
 import requests
 from config import settings
 
@@ -106,35 +107,42 @@ class AIProspectEnricher:
         )
         logger.info(f"[AI Enricher] Generating pitch for {founder_name} @ {company_name} using {self.provider}...")
 
+        pitch = ""
         try:
             if self.provider == "ollama":
-                return self._call_ollama(prompt)
+                pitch = self._call_ollama(prompt)
             elif self.provider == "groq":
-                return self._call_groq(prompt)
+                pitch = self._call_groq(prompt)
             elif self.provider == "openai":
-                return self._call_openai(prompt)
+                pitch = self._call_openai(prompt)
             else:
                 logger.warning(f"LLM Provider '{self.provider}' not implemented or invalid. Falling back to template.")
         except Exception as e:
             logger.warning(f"[{self.provider}] Error generating pitch ({e}). Falling back to template generator.")
 
-        # Template fallback if LLM server is offline or fails
-        return self._fallback_template(founder_name, company_name, location, summary)
+        if not pitch:
+            pitch = self._fallback_template(founder_name, company_name, location, summary)
+
+        return html.unescape(pitch)
 
     def _fallback_template(self, founder_name: str, company_name: str, location: str, summary: str) -> str:
-        return f"""Subject: Scaling {company_name}'s tech team / Quick question
+        clean_summary = summary.strip().rstrip(".")
+        product_hook = f"Saw that {company_name} is building {clean_summary}." if clean_summary else f"Saw {company_name} is scaling tech in {location}."
+        
+        pitch = f"""Subject: Engineering delivery for {company_name} / Quick question
 
 Hi {founder_name},
 
-Saw that {company_name} is scaling its platform in {location}.
+{product_hook}
 
-Most founders we partner with in {location} struggle with $140k+ local developer salaries and the headache of managing remote freelancers who miss sprint deadlines.
+Founders scaling fast often struggle with high local developer salaries and the management drag of tracking remote freelancers who miss sprint deadlines.
 
 We solve both: We provide senior Indian software engineers AND handle full end-to-end Product & Project Management—so features get delivered on time without taking up your week.
 
-We recently helped a US startup ship their MVP in 60 days at 60% lower cost.
+We recently helped a fast-growing startup ship their core platform at 60% lower cost.
 
 Open to seeing a 2-minute video on how we manage delivery?
 
 Best,
-Offshore Delivery Lead"""
+Sai Akshay"""
+        return html.unescape(pitch)

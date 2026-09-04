@@ -95,7 +95,14 @@ class AddLeadRequest(BaseModel):
 
 # --- Helpers ---
 def escape_lead(lead: dict) -> dict:
-    return {k: (html.escape(str(v)) if isinstance(v, str) else v) for k, v in lead.items()}
+    cleaned = {}
+    for k, v in lead.items():
+        if isinstance(v, str):
+            raw = html.unescape(v)
+            cleaned[k] = raw.replace("<", "&lt;").replace(">", "&gt;")
+        else:
+            cleaned[k] = v
+    return cleaned
 
 # --- Routes ---
 @app.get("/api/health")
@@ -107,6 +114,46 @@ def get_leads():
     try:
         leads = get_all_leads()
         return [escape_lead(lead) for lead in leads]
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/api/send-all-leads")
+def send_all_leads_endpoint(request: Request):
+    try:
+        leads = get_all_leads()
+        review_leads = [l for l in leads if l.get('status') != 'SENT']
+        
+        if not review_leads:
+            return {"success": True, "count": 0, "message": "No pending emails to send"}
+
+        email_svc = EmailService()
+        sent_count = 0
+        errors = []
+
+        for lead in review_leads:
+            pitch_text = html.unescape(lead['pitch'])
+            lines = pitch_text.strip().split("\n")
+            subject = f"Partnership with {lead['company_name']}"
+            body_text = pitch_text
+            if lines and lines[0].startswith("Subject:"):
+                subject = lines[0].replace("Subject:", "").strip()
+                body_text = "\n".join(lines[1:]).strip()
+
+            html_content = f"""
+            <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <p>{body_text.replace(chr(10), '<br>')}</p>
+            </div>
+            """
+
+            try:
+                email_svc.send(lead['email'], subject, html_content, body_text)
+                log_email_sent(lead['id'], "sent_via_email_service")
+                update_lead_status(lead['id'], 'SENT')
+                sent_count += 1
+            except Exception as e:
+                errors.append(f"{lead['company_name']}: {e}")
+
+        return {"success": True, "count": sent_count, "errors": errors}
     except Exception as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
@@ -523,7 +570,8 @@ def serve_dashboard():
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
             <h2 style="font-size: 18px; margin: 0;">Captured Real ICP Founders (Review & Send)</h2>
             <div style="display: flex; gap: 10px;">
-                <button class="btn" style="background: var(--success-color); color: white; width: auto; padding: 10px 20px;" onclick="openDiscoverModal()">🔍 Discover Real Leads</button>
+                <button class="btn" style="background: var(--success-color); color: white; width: auto; padding: 10px 20px;" onclick="sendAllEmails()">✉ Send All Emails (1-Click)</button>
+                <button class="btn" style="background: #a78bfa; color: white; width: auto; padding: 10px 20px;" onclick="openDiscoverModal()">🔍 Discover Real Leads</button>
                 <button class="btn" style="background: var(--accent-color); color: white; width: auto; padding: 10px 20px;" onclick="fetchLeads()">Refresh Leads</button>
             </div>
         </div>
@@ -777,6 +825,26 @@ def serve_dashboard():
             }} finally {{
                 btn.disabled = false;
                 btn.innerHTML = 'Start Live Capture & AI Pitching';
+            }}
+        }}
+
+        async function sendAllEmails() {{
+            if(!confirm('Send ALL pending cold outreach emails now via Gmail SMTP?')) return;
+            showToast('Sending all pending emails via Gmail SMTP...', 'success');
+            try {{
+                const res = await fetch('/api/send-all-leads', {{
+                    method: 'POST',
+                    headers: getHeaders()
+                }});
+                const data = await res.json();
+                if(data.success) {{
+                    showToast(`Dispatched ${{data.count}} emails successfully via Gmail SMTP!`);
+                    fetchLeads();
+                }} else {{
+                    showToast(data.error || 'Error sending emails', 'error');
+                }}
+            }} catch(err) {{
+                showToast('Network error sending emails', 'error');
             }}
         }}
 

@@ -1,5 +1,6 @@
 import re
 import uuid
+import html
 import logging
 import socket
 from urllib.parse import urlparse
@@ -122,10 +123,16 @@ class StartupLeadScraper:
             title = item.get("title", "")
             body = item.get("body", "")
 
-            # Handle YC Company page specifically
+            # Handle YC Company page specifically (skip category, location, batch listing URLs)
             if "ycombinator.com/companies/" in href:
+                if any(bad in href.lower() for bad in [
+                    "/companies/industry/", "/companies/location/", "/companies/batch/",
+                    "/companies/founders/", "/companies/tags/", "/companies/search", "/companies/jobs"
+                ]):
+                    continue
+                    
                 yc_lead = self._parse_yc_company_page(href, body)
-                if yc_lead and yc_lead["domain"] not in seen_domains:
+                if yc_lead and yc_lead["founder_name"] != "Founder" and "/" not in yc_lead["domain"] and yc_lead["domain"] not in seen_domains:
                     seen_domains.add(yc_lead["domain"])
                     results.append(yc_lead)
                     logger.info(f"[Live Scraper] Captured Real YC Lead: {yc_lead['company_name']} | Founder: {yc_lead['founder_name']} | Email: {yc_lead['email']}")
@@ -201,14 +208,16 @@ class StartupLeadScraper:
     def _parse_yc_company_page(self, url: str, snippet: str) -> Dict[str, Any]:
         """Scrapes an actual YC company profile page for real founder details."""
         try:
+            company_slug = url.split("/companies/")[-1].strip("/")
+            if "/" in company_slug or "+" in company_slug:
+                return None
+
             res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
             if res.status_code == 200:
                 soup = BeautifulSoup(res.text, "html.parser")
                 meta_desc = soup.find("meta", attrs={"name": "description"})
-                desc_content = meta_desc["content"] if meta_desc else snippet
+                desc_content = html.unescape(meta_desc["content"]) if meta_desc else html.unescape(snippet)
                 
-                # Format: "Product desc. Founded in 2025 by Founder Name, Co-Founder Name, ... based in Location."
-                company_slug = url.split("/companies/")[-1].strip("/")
                 company_name = company_slug.replace("-", " ").title()
 
                 founder_name = "Founder"
@@ -218,13 +227,13 @@ class StartupLeadScraper:
                     try:
                         by_split = desc_content.split(" by ")[1]
                         founders_part = by_split.split(", has ")[0].split(".")[0].split(" based in ")[0]
-                        founder_name = founders_part.split(",")[0].strip()
+                        founder_name = html.unescape(founders_part.split(",")[0].strip())
                     except Exception:
                         pass
 
                 if " based in " in desc_content:
                     try:
-                        location = desc_content.split(" based in ")[1].split(".")[0].strip()
+                        location = html.unescape(desc_content.split(" based in ")[1].split(".")[0].strip())
                     except Exception:
                         pass
 
