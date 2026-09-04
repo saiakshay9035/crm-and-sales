@@ -36,6 +36,8 @@ class RateLimiter:
 
 send_limiter = RateLimiter(max_requests=5, window_seconds=60)
 
+from icp_background_worker import worker_instance
+
 # --- Lifespan ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -45,8 +47,12 @@ async def lifespan(app: FastAPI):
     if os.path.exists(json_path):
         print(f"Migrating leads from {json_path}...")
         migrate_from_json(json_path)
+    print("Starting Autonomous ICP Scraping Daemon...")
+    worker_instance.start()
     print("Dashboard Startup Complete.")
     yield
+    print("Stopping Autonomous ICP Scraping Daemon...")
+    worker_instance.stop()
     print("Dashboard Shutdown Complete.")
 
 # --- App Init ---
@@ -212,6 +218,18 @@ def remove_lead_endpoint(req: LeadIdRequest):
         return {"success": True}
     except Exception as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.get("/api/auto-scraper/status")
+def get_auto_scraper_status():
+    return worker_instance.get_status_dict()
+
+@app.post("/api/auto-scraper/toggle")
+def toggle_auto_scraper():
+    if worker_instance.is_running():
+        worker_instance.stop()
+    else:
+        worker_instance.start()
+    return worker_instance.get_status_dict()
 
 class DiscoverLeadsRequest(BaseModel):
     query: Optional[str] = "Y Combinator AI startup founder"
@@ -525,15 +543,16 @@ def serve_dashboard():
         <div class="modal-content" style="max-width: 520px;">
             <h2>🔍 Discover Real Live ICP Founders</h2>
             <p style="color: var(--text-secondary); font-size: 13px; line-height: 1.4;">
-                Scrapes live startup directories (YCombinator, ProductHunt) & website landing pages. Verifies active domain MX records and generates personalized AI pitches.
+                Targeting early-stage Pre-Seed / Seed SaaS & software founders (&lt;10 team members) across US, Australia (Sydney), EU, and Dubai.
             </p>
             <label style="font-size: 12px; color: var(--text-secondary); font-weight: 600;">SEARCH NICHE & LOCATION:</label>
-            <input type="text" id="discover-query" placeholder="e.g. Y Combinator 2024 AI startup founder" value="Y Combinator 2024 AI startup founder" />
+            <input type="text" id="discover-query" placeholder="e.g. Pre-seed SaaS startup founder Sydney Dubai San Francisco" value="Pre-seed SaaS startup founder Sydney Dubai San Francisco" />
             
             <div style="display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap;">
-                <button class="preset-btn" onclick="setPreset('Y Combinator 2024 AI startup founder')">🚀 YC AI Startups</button>
-                <button class="preset-btn" onclick="setPreset('Fintech startup CEO US Dubai')">💳 Fintech Founders</button>
-                <button class="preset-btn" onclick="setPreset('DevOps SaaS founder San Francisco')">⚡ B2B SaaS Founders</button>
+                <button class="preset-btn" onclick="setPreset('Pre-seed SaaS startup founder San Francisco Sydney Dubai')">🚀 Pre-Seed SaaS (US/AUS/EU/Dubai)</button>
+                <button class="preset-btn" onclick="setPreset('Early stage SaaS founder CEO team under 10')">⚡ Early Founders (&lt;10 Team)</button>
+                <button class="preset-btn" onclick="setPreset('Angel invested SaaS startup CEO Sydney Dubai')">🇦🇺 Sydney & Dubai SaaS</button>
+                <button class="preset-btn" onclick="setPreset('Y Combinator B2B SaaS founder US AUS EU Dubai')">💳 YC Pre-Seed B2B Software</button>
             </div>
             
             <div style="display: flex; gap: 10px;">
@@ -549,10 +568,15 @@ def serve_dashboard():
         <header>
             <div class="title-group">
                 <h1>Human-in-the-Loop AI Lead & Outreach Dashboard</h1>
-                <p>Review captured ICP founders & approve AI personalized pitches</p>
+                <p>Review captured ICP founders (&lt;10 team • US, AUS, EU, Dubai) & approve AI personalized pitches</p>
             </div>
-            <div class="status-badge" id="resend-status">
-                Checking Email Provider...
+            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px;">
+                <div class="status-badge" id="resend-status">
+                    Checking Email Provider...
+                </div>
+                <div class="status-badge connected" id="auto-scraper-badge" style="cursor: pointer;" onclick="toggleAutoScraper()" title="Click to toggle background ICP discovery daemon">
+                    AUTONOMOUS SCRAPER: RUNNING 🟢
+                </div>
             </div>
         </header>
 
@@ -848,7 +872,34 @@ def serve_dashboard():
             }}
         }}
 
-        if(checkAuth()) fetchLeads();
+        async function fetchAutoScraperStatus() {{
+            try {{
+                const res = await fetch('/api/auto-scraper/status', {{ headers: getHeaders() }});
+                const data = await res.json();
+                const badge = document.getElementById('auto-scraper-badge');
+                if (badge) {{
+                    badge.className = data.running ? 'status-badge connected' : 'status-badge disconnected';
+                    badge.textContent = data.running ? `AUTONOMOUS ICP SCRAPER: ACTIVE 🟢` : `AUTONOMOUS ICP SCRAPER: PAUSED 🔴`;
+                }}
+            }} catch(e) {{}}
+        }}
+
+        async function toggleAutoScraper() {{
+            try {{
+                const res = await fetch('/api/auto-scraper/toggle', {{ method: 'POST', headers: getHeaders() }});
+                const data = await res.json();
+                showToast(data.running ? 'Autonomous ICP Scraper Resumed 🟢' : 'Autonomous ICP Scraper Paused 🔴');
+                fetchAutoScraperStatus();
+            }} catch(e) {{
+                showToast('Error toggling autonomous scraper', 'error');
+            }}
+        }}
+
+        if(checkAuth()) {{
+            fetchLeads();
+            fetchAutoScraperStatus();
+            setInterval(fetchAutoScraperStatus, 15000);
+        }}
     </script>
 </body>
 </html>"""
