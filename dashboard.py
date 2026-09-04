@@ -898,7 +898,10 @@ def serve_dashboard():
         if(checkAuth()) {{
             fetchLeads();
             fetchAutoScraperStatus();
-            setInterval(fetchAutoScraperStatus, 15000);
+            setInterval(() => {{
+                fetchLeads();
+                fetchAutoScraperStatus();
+            }}, 10000);
         }}
     </script>
 </body>
