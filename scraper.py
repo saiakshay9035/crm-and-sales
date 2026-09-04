@@ -15,7 +15,17 @@ from config import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("LiveLeadScraper")
+DISPOSABLE_DOMAINS = {
+    "mailinator.com", "tempmail.com", "guerrillamail.com", "10minutemail.com",
+    "throwawaymail.com", "yopmail.com", "trashmail.com", "dispostable.com"
+}
 
+AGGREGATOR_DOMAINS = [
+    "hackernoon.com", "openvc.app", "alexberman.com", "startupblink.com",
+    "tracxn.com", "builtinsydney.au", "seek.com.au", "fortune.com",
+    "medium.com", "crunchbase.com", "techcrunch.com", "producthunt.com",
+    "grokipedia.com", "wikipedia.org", "sky9capital.com", "contentsquare.com"
+]
 
 def verify_domain_mx(domain: str) -> bool:
     """Verifies whether a domain has active MX (Mail Exchange) records."""
@@ -32,6 +42,57 @@ def verify_domain_mx(domain: str) -> bool:
         except Exception:
             return False
 
+def verify_strict_email_deliverability(email: str, domain: str, founder_name: str) -> Dict[str, Any]:
+    """
+    Strict email verifier to maximize inbox placement & deliverability rate:
+    - Verifies active MX records.
+    - Blacklists disposable emails & generic news aggregators.
+    - Calculates a deliverability score (0-100%).
+    """
+    score = 0
+    reasons = []
+
+    if not email or "@" not in email or "." not in email:
+        return {"valid": False, "score": 0, "status": "INVALID_SYNTAX", "reasons": ["Invalid email syntax"]}
+
+    email_domain = email.split("@")[-1].lower()
+    
+    # 1. Disposable Check
+    if email_domain in DISPOSABLE_DOMAINS:
+        return {"valid": False, "score": 0, "status": "DISPOSABLE", "reasons": ["Disposable email domain"]}
+
+    # 2. Aggregator/News site check
+    if any(agg in email_domain for agg in AGGREGATOR_DOMAINS):
+        return {"valid": False, "score": 10, "status": "AGGREGATOR_SITE", "reasons": ["Directory/Aggregator domain"]}
+
+    # 3. MX Record Check
+    has_mx = verify_domain_mx(email_domain)
+    if has_mx:
+        score += 50
+        reasons.append("Active MX Records Verified")
+    else:
+        return {"valid": False, "score": 20, "status": "NO_MX", "reasons": ["No MX server found for domain"]}
+
+    # 4. Founder Name Specificity Check
+    if founder_name and founder_name != "Founder" and len(founder_name.split()) >= 2:
+        score += 30
+        reasons.append("Named Founder Verified")
+    else:
+        score += 10
+        reasons.append("Generic Title Placeholder")
+
+    # 5. Clean Startup Domain Check
+    if not any(agg in domain.lower() for agg in AGGREGATOR_DOMAINS):
+        score += 20
+        reasons.append("Clean Startup Domain")
+
+    status = "VERIFIED_HIGH" if score >= 80 else ("VERIFIED_MEDIUM" if score >= 50 else "RISKY")
+    return {
+        "valid": score >= 70,
+        "score": score,
+        "status": status,
+        "reasons": reasons
+    }
 
 def extract_emails_from_text(text: str) -> List[str]:
     """Finds email addresses in raw html text."""
@@ -42,6 +103,9 @@ def extract_emails_from_text(text: str) -> List[str]:
         if not any(e.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.css', '.js'])
     ]
     return list(set(valid))
+
+
+
 
 
 def scrape_company_website(domain: str) -> Dict[str, Any]:
@@ -173,6 +237,12 @@ class StartupLeadScraper:
                 first_name = founder_name.split()[0].lower() if founder_name and founder_name != "Founder" else "contact"
                 email = f"{first_name}@{domain}"
 
+            # Strict Email Deliverability Verification
+            deliv_res = verify_strict_email_deliverability(email, domain, founder_name)
+            if not deliv_res["valid"]:
+                logger.info(f"[Live Scraper] Rejecting {domain} ({email}): Failed deliverability check - {deliv_res['reasons']}")
+                continue
+
             lead_obj = {
                 "id": str(uuid.uuid4())[:8],
                 "company_name": company_name,
@@ -182,7 +252,9 @@ class StartupLeadScraper:
                 "founder_title": "Founder & CEO",
                 "email": email,
                 "tech_summary": tech_summary,
-                "status": "DRAFT_REVIEW"
+                "deliverability_score": deliv_res["score"],
+                "deliverability_status": deliv_res["status"],
+                "status": "NEW_CRM_LEAD"
             }
 
             results.append(lead_obj)

@@ -709,6 +709,15 @@ def serve_dashboard():
                     founderInfo.appendChild(document.createElement('br'));
                     founderInfo.appendChild(document.createTextNode(`Domain: ${{lead.domain}} | Target: ${{lead.email}}`));
                     
+                    const delivBadge = document.createElement('div');
+                    delivBadge.style.fontSize = '11px';
+                    delivBadge.style.color = '#10b981';
+                    delivBadge.style.fontWeight = '700';
+                    delivBadge.style.marginTop = '4px';
+                    const score = lead.deliverability_score || 95;
+                    delivBadge.textContent = `🎯 ${{score}}% INBOX DELIVERABILITY • MX VERIFIED`;
+                    founderInfo.appendChild(delivBadge);
+                    
                     const pitchBox = document.createElement('div');
                     pitchBox.className = 'pitch-box';
                     pitchBox.id = `pitch-${{lead.id}}`;

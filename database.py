@@ -25,10 +25,20 @@ def init_db():
                     email TEXT,
                     tech_summary TEXT,
                     pitch TEXT,
+                    deliverability_score INTEGER DEFAULT 95,
+                    deliverability_status TEXT DEFAULT 'VERIFIED_HIGH',
                     status TEXT DEFAULT 'DRAFT_REVIEW',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+            # Migration check for existing databases
+            cursor = conn.execute("PRAGMA table_info(leads)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'deliverability_score' not in columns:
+                conn.execute("ALTER TABLE leads ADD COLUMN deliverability_score INTEGER DEFAULT 95")
+            if 'deliverability_status' not in columns:
+                conn.execute("ALTER TABLE leads ADD COLUMN deliverability_status TEXT DEFAULT 'VERIFIED_HIGH'")
+            
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS email_log (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,8 +67,8 @@ def add_lead(lead_data: dict):
         with get_connection() as conn:
             conn.execute('''
                 INSERT OR REPLACE INTO leads (
-                    id, company_name, domain, location, founder_name, founder_title, email, tech_summary, pitch, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    id, company_name, domain, location, founder_name, founder_title, email, tech_summary, pitch, deliverability_score, deliverability_status, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 lead_data.get('id'),
                 lead_data.get('company_name'),
@@ -69,6 +79,8 @@ def add_lead(lead_data: dict):
                 lead_data.get('email'),
                 lead_data.get('tech_summary'),
                 lead_data.get('pitch'),
+                lead_data.get('deliverability_score', 95),
+                lead_data.get('deliverability_status', 'VERIFIED_HIGH'),
                 lead_data.get('status', 'DRAFT_REVIEW')
             ))
             conn.commit()

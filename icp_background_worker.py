@@ -104,17 +104,8 @@ class ICPBackgroundWorker:
                     if not domain or domain in existing_domains:
                         continue
 
-                    # 2. Enrich with custom AI pitch
-                    pitch = self.enricher.generate_pitch(
-                        founder_name=lead["founder_name"],
-                        company_name=lead["company_name"],
-                        location=lead["location"],
-                        summary=lead["tech_summary"]
-                    )
-                    lead["pitch"] = pitch
-                    lead["status"] = "DRAFT_REVIEW"
-
-                    # 3. Log to Comp AI CRM
+                    # 1. First: Log initial record to CRM (CRM First Flow)
+                    lead["status"] = "NEW_CRM_LEAD"
                     try:
                         comp_rec = self.crm.create_or_update_company(
                             name=lead["company_name"],
@@ -127,12 +118,41 @@ class ICPBackgroundWorker:
                             name=lead["founder_name"],
                             email=lead["email"],
                             title=lead["founder_title"],
-                            pitch_draft=pitch
+                            pitch_draft="Pending AI Pitch Enrichment & Verification..."
                         )
                     except Exception as crm_err:
                         logger.warning(f"[ICP Worker Daemon] CRM log warning: {crm_err}")
 
-                    # 4. Save to SQLite Database
+                    # 2. Strict Email Deliverability Verification
+                    from scraper import verify_strict_email_deliverability
+                    deliv_check = verify_strict_email_deliverability(
+                        email=lead["email"],
+                        domain=lead["domain"],
+                        founder_name=lead["founder_name"]
+                    )
+                    
+                    lead["deliverability_score"] = deliv_check["score"]
+                    lead["deliverability_status"] = deliv_check["status"]
+
+                    if not deliv_check["valid"]:
+                        logger.info(f"[ICP Worker Daemon] Skipped {domain}: Low deliverability ({deliv_check['score']}%) - {deliv_check['reasons']}")
+                        lead["status"] = "LOW_DELIVERABILITY_FLAGGED"
+                        add_lead(lead)
+                        continue
+
+                    # 3. AI Pitch Personalization
+                    pitch = self.enricher.generate_pitch(
+                        founder_name=lead["founder_name"],
+                        company_name=lead["company_name"],
+                        location=lead["location"],
+                        summary=lead["tech_summary"]
+                    )
+                    lead["pitch"] = pitch
+
+                    # 4. Promote to Human-in-the-Loop Dashboard for Final Email Review
+                    lead["status"] = "DRAFT_REVIEW"
+
+                    # 5. Save to Database for Dashboard Display
                     add_lead(lead)
                     existing_domains.add(domain)
                     new_count += 1
