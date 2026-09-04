@@ -216,10 +216,17 @@ def send_lead(req: LeadIdRequest, request: Request):
     except Exception as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
-@app.post("/api/remove-lead")
-def remove_lead_endpoint(req: LeadIdRequest):
+class SavePitchRequest(BaseModel):
+    id: str
+    pitch: str
+
+@app.post("/api/save-pitch")
+def save_pitch_endpoint(req: SavePitchRequest):
     try:
-        remove_lead(req.id)
+        from database import get_connection, _lock
+        with _lock, get_connection() as conn:
+            conn.execute("UPDATE leads SET pitch = ? WHERE id = ?", (req.pitch, req.id))
+            conn.commit()
         return {"success": True}
     except Exception as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
@@ -227,6 +234,7 @@ def remove_lead_endpoint(req: LeadIdRequest):
 @app.get("/api/auto-scraper/status")
 def get_auto_scraper_status():
     return worker_instance.get_status_dict()
+
 
 @app.post("/api/auto-scraper/toggle")
 def toggle_auto_scraper():
@@ -398,31 +406,33 @@ def serve_dashboard():
             font-size: 12px;
         }}
         .founder-info {{ color: var(--text-secondary); font-size: 14px; margin-bottom: 14px; }}
-        .pitch-box {{
+        .pitch-box {
             background: #090d16;
             border-radius: 8px;
-            padding: 14px;
+            padding: 12px;
             font-size: 13px;
             line-height: 1.5;
             color: #cbd5e1;
             border-left: 3px solid var(--accent-color);
-            margin-bottom: 16px;
+            margin-bottom: 14px;
             white-space: pre-wrap;
-            max-height: 180px;
-            overflow-y: auto;
-            border: 1px solid transparent;
-        }}
-        .pitch-box[contenteditable="true"] {{
-            border: 1px dashed var(--border-color);
+            min-height: 160px;
+            width: 100%;
+            box-sizing: border-box;
+            font-family: inherit;
+            resize: vertical;
+            border: 1px solid var(--border-color);
             outline: none;
-        }}
-        .pitch-box[contenteditable="true"]:focus {{
+        }
+        .pitch-box:focus {
             border-color: var(--accent-color);
-        }}
-        .btn-group {{
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+        }
+        .btn-group {
             display: flex;
-            gap: 10px;
-        }}
+            gap: 8px;
+        }
+        .btn-save { background: #3b82f6; color: white; }
         .btn {{
             flex: 1;
             padding: 10px;
@@ -613,6 +623,7 @@ def serve_dashboard():
     <script>
         const NEEDS_AUTH = {needs_auth};
         let authToken = localStorage.getItem('dashboard_token') || '';
+        let isUserEditing = false;
         const smtpUser = "{settings.SMTP_USER}";
         const hasSmtp = smtpUser && smtpUser !== "your_email@domain.com";
         const hasResend = "{settings.RESEND_API_KEY}" !== "None" && "{settings.RESEND_API_KEY}" !== "";
@@ -665,6 +676,7 @@ def serve_dashboard():
 
         async function fetchLeads() {{
             if (!checkAuth()) return;
+            if (isUserEditing || (document.activeElement && document.activeElement.classList.contains('pitch-box'))) return;
             
             try {{
                 const res = await fetch('/api/leads', {{ headers: getHeaders() }});
@@ -725,11 +737,14 @@ def serve_dashboard():
                         founderInfo.appendChild(delivBadge);
                     }}
                     
-                    const pitchBox = document.createElement('div');
+                    const pitchBox = document.createElement('textarea');
                     pitchBox.className = 'pitch-box';
                     pitchBox.id = `pitch-${{lead.id}}`;
+                    pitchBox.rows = 7;
                     const defaultPitch = `Subject: Engineering delivery for ${{lead.company_name}} / Quick question\n\nHi ${{lead.founder_name}},\n\nSaw ${{lead.company_name}} is scaling tech in ${{lead.location}}.\n\nFounders scaling fast often struggle with high local developer salaries and the management drag of tracking remote freelancers who miss sprint deadlines.\n\nWe solve both: We provide senior Indian software engineers AND handle full end-to-end Product & Project Management—so features get delivered on time without taking up your week.\n\nOpen to seeing a 2-minute video on how we manage delivery?\n\nBest,\nSai Akshay`;
-                    pitchBox.textContent = (lead.pitch && lead.pitch.trim().length > 10) ? lead.pitch : defaultPitch;
+                    pitchBox.value = (lead.pitch && lead.pitch.trim().length > 10) ? lead.pitch : defaultPitch;
+                    pitchBox.onfocus = () => {{ isUserEditing = true; }};
+                    pitchBox.onblur = () => {{ isUserEditing = false; }};
                     
                     topDiv.appendChild(headerDiv);
                     topDiv.appendChild(founderInfo);
@@ -737,21 +752,27 @@ def serve_dashboard():
                     card.appendChild(topDiv);
 
                     if (lead.status === 'SENT') {{
+                        pitchBox.disabled = true;
+                        pitchBox.style.opacity = '0.7';
                         const statusSent = document.createElement('div');
                         statusSent.className = 'status-sent';
                         statusSent.textContent = hasSmtp ? `✉ REAL EMAIL SENT VIA GMAIL (${{smtpUser}})` : '✉ REAL EMAIL SENT VIA RESEND';
                         card.appendChild(statusSent);
                     }} else {{
-                        pitchBox.setAttribute('contenteditable', 'true');
-                        pitchBox.title = "Click to edit pitch before sending";
+                        pitchBox.title = "Type inside this box to customize the email template before sending";
                         
                         const actionArea = document.createElement('div');
                         actionArea.className = 'btn-group';
                         
                         const sendBtn = document.createElement('button');
                         sendBtn.className = 'btn btn-send';
-                        sendBtn.innerHTML = '✉ Send Email Now';
+                        sendBtn.innerHTML = '✉ Send Email';
                         sendBtn.onclick = () => sendEmail(lead.id, sendBtn);
+
+                        const saveBtn = document.createElement('button');
+                        saveBtn.className = 'btn btn-save';
+                        saveBtn.innerHTML = '💾 Save Pitch';
+                        saveBtn.onclick = () => savePitch(lead.id, saveBtn);
                         
                         const rmBtn = document.createElement('button');
                         rmBtn.className = 'btn btn-remove';
@@ -759,6 +780,7 @@ def serve_dashboard():
                         rmBtn.onclick = () => removeLead(lead.id, rmBtn);
                         
                         actionArea.appendChild(sendBtn);
+                        actionArea.appendChild(saveBtn);
                         actionArea.appendChild(rmBtn);
                         card.appendChild(actionArea);
                     }}
@@ -770,6 +792,31 @@ def serve_dashboard():
             }}
         }}
 
+        async function savePitch(leadId, btnElement) {{
+            const editedPitch = document.getElementById(`pitch-${{leadId}}`).value;
+            const originalText = btnElement.innerHTML;
+            btnElement.disabled = true;
+            btnElement.innerHTML = 'Saving...';
+            try {{
+                const res = await fetch('/api/save-pitch', {{
+                    method: 'POST',
+                    headers: getHeaders(),
+                    body: JSON.stringify({{ id: leadId, pitch: editedPitch }})
+                }});
+                const data = await res.json();
+                if(data.success) {{
+                    showToast('Email template saved to database!');
+                }} else {{
+                    showToast(data.error || 'Error saving template', 'error');
+                }}
+            }} catch(err) {{
+                showToast('Network error saving template', 'error');
+            }} finally {{
+                btnElement.disabled = false;
+                btnElement.innerHTML = originalText;
+            }}
+        }}
+
         async function sendEmail(leadId, btnElement) {{
             if(btnElement.disabled) return;
             if(!confirm('Send this personalized cold email now?')) return;
@@ -778,7 +825,7 @@ def serve_dashboard():
             btnElement.disabled = true;
             btnElement.innerHTML = '<div class="spinner"></div> Sending...';
             
-            const editedPitch = document.getElementById(`pitch-${{leadId}}`).textContent;
+            const editedPitch = document.getElementById(`pitch-${{leadId}}`).value;
 
             try {{
                 const res = await fetch('/api/send-lead', {{
@@ -916,11 +963,14 @@ def serve_dashboard():
             fetchLeads();
             fetchAutoScraperStatus();
             setInterval(() => {{
-                fetchLeads();
-                fetchAutoScraperStatus();
+                if (!isUserEditing && !(document.activeElement && document.activeElement.classList.contains('pitch-box'))) {{
+                    fetchLeads();
+                    fetchAutoScraperStatus();
+                }}
             }}, 10000);
         }}
     </script>
+
 </body>
 </html>"""
     return HTMLResponse(content=html_content)
