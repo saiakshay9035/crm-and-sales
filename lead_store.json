@@ -1,0 +1,50 @@
+[
+  {
+    "id": "lead_1",
+    "company_name": "Supabase",
+    "domain": "supabase.com",
+    "location": "San Francisco, US",
+    "founder_name": "Paul Copplestone",
+    "founder_title": "CEO & Co-founder",
+    "email": "saiakshay30@gmail.com",
+    "tech_summary": "Open source Firebase alternative. Scaling global backend infrastructure and developer tooling.",
+    "pitch": "Subject: Scaling Supabase's developer platform / Quick question\n\nHi Paul,\n\nSaw how fast Supabase is scaling open-source Firebase alternatives in San Francisco.\n\nMost founders scaling fast in the US struggle with $150k+ local developer rates and the management drag of tracking remote contractors who miss sprint deadlines.\n\nWe solve both: We place senior Indian software engineers AND handle full end-to-end Product & Project Management so features get delivered on time without taking up your week.\n\nOpen to seeing a 2-minute video on how we manage delivery?\n\nBest,\nOffshore Tech Manager",
+    "status": "DRAFT_REVIEW"
+  },
+  {
+    "id": "lead_2",
+    "company_name": "PostHog",
+    "domain": "posthog.com",
+    "location": "San Francisco, US",
+    "founder_name": "James Hawkins",
+    "founder_title": "CEO & Founder",
+    "email": "saiakshay30@gmail.com",
+    "tech_summary": "Open-source product analytics suite. Rapidly building new data pipelines and web app features.",
+    "pitch": "Subject: Scaling PostHog's engineering velocity / Quick question\n\nHi James,\n\nSaw how fast PostHog is shipping open-source product analytics tools.\n\nMany US tech leaders we work with face high local engineering costs and the headache of managing freelancers who drift off schedule.\n\nWe provide senior Indian full-stack developers WITH dedicated Product & Project Managers—delivering production features on time at 60% lower cost.\n\nWorth a quick 2-minute video overview?\n\nBest,\nOffshore Delivery Lead",
+    "status": "DRAFT_REVIEW"
+  },
+  {
+    "id": "lead_3",
+    "company_name": "Careem Pay",
+    "domain": "careem.com",
+    "location": "Dubai, UAE",
+    "founder_name": "Mudassir Sheikha",
+    "founder_title": "CEO & Founder",
+    "email": "saiakshay30@gmail.com",
+    "tech_summary": "MENA super-app payments division. Expanding fintech mobile app features and payment integrations in Dubai.",
+    "pitch": "Subject: Scaling Careem Pay's tech team in Dubai / Quick question\n\nHi Mudassir,\n\nSaw Careem Pay's expansion across the UAE payment ecosystem.\n\nFounders scaling in Dubai often face tight local tech talent pools and heavy founder time spent managing sprint boards.\n\nWe place top senior Indian engineers and provide complete Product & Project Management coverage so your team ships on time without management overhead.\n\nOpen to a brief 2-minute video on our delivery model?\n\nBest,\nOffshore Tech Manager",
+    "status": "DRAFT_REVIEW"
+  },
+  {
+    "id": "lead_4",
+    "company_name": "Canva Engineering",
+    "domain": "canva.com",
+    "location": "Sydney, Australia",
+    "founder_name": "Cameron Adams",
+    "founder_title": "Chief Product Officer",
+    "email": "saiakshay30@gmail.com",
+    "tech_summary": "Visual design platform. Expanding AI design tools and high-performance web canvas rendering engine.",
+    "pitch": "Subject: Scaling Canva's product delivery / Quick question\n\nHi Cameron,\n\nImpressed by Canva's rapid rollout of AI design tools in Sydney.\n\nScaling product features in Australia often comes with steep local developer rates and founder time sucked into daily sprint tracking.\n\nWe provide senior Indian developers + dedicated Project Managers who own sprint delivery from spec to deployment at 60% lower cost.\n\nOpen to seeing a 2-minute video breakdown?\n\nBest,\nOffshore Delivery Lead",
+    "status": "DRAFT_REVIEW"
+  }
+]
