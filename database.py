@@ -4,22 +4,14 @@ import shutil
 import sqlite3
 import threading
 
-is_serverless = bool(os.environ.get('NETLIFY') or os.environ.get('VERCEL') or os.environ.get('AWS_LAMBDA_FUNCTION_NAME') or os.environ.get('LAMBDA_TASK_ROOT'))
-DB_PATH = '/tmp/leads.db' if is_serverless else os.environ.get('DB_PATH', 'leads.db')
+DB_PATH = os.environ.get('DB_PATH', 'leads.db')
 _lock = threading.Lock()
 
 def get_connection():
-    if is_serverless and not os.path.exists('/tmp/leads.db'):
-        root_db = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'leads.db')
-        if os.path.exists(root_db):
-            try:
-                shutil.copy(root_db, '/tmp/leads.db')
-            except Exception as e:
-                print(f"Could not copy seed DB to /tmp: {e}")
-
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
+
 
 
 def init_db():

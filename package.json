@@ -1,8 +1,0 @@
-{
-  "name": "ai-lead-crm-agent",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "build": "pip install -r requirements.txt -t netlify/functions/"
-  }
-}
