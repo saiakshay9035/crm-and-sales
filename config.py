@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     CRM_API_KEY: str = "your_comp_crm_key"
     
     # Email Outreach Settings (SMTP / Free Mailer)
+    EMAIL_PROVIDER: str = "smtp"  # "smtp" or "resend"
     SMTP_SERVER: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
     SMTP_USER: str = "your_email@domain.com"

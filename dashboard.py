@@ -16,6 +16,8 @@ from database import (
     remove_lead, log_email_sent, migrate_from_json, add_lead as db_add_lead
 )
 
+from email_service import EmailService, EmailServiceError
+
 # --- Rate Limiter ---
 class RateLimiter:
     def __init__(self, max_requests: int, window_seconds: int):
@@ -122,51 +124,37 @@ def send_lead(req: LeadIdRequest, request: Request):
         # Use provided pitch if edited, else original
         pitch_text = req.pitch if req.pitch else lead['pitch']
         
+        lines = pitch_text.strip().split("\n")
+        subject = f"Partnership with {lead['company_name']}"
+        body_text = pitch_text
+        if lines and lines[0].startswith("Subject:"):
+            subject = lines[0].replace("Subject:", "").strip()
+            body_text = "\n".join(lines[1:]).strip()
+
         html_content = f"""
-        <div style="font-family: sans-serif; color: #333;">
-            <p>{pitch_text.replace(chr(10), '<br>')}</p>
-            <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-            <p style="font-size: 11px; color: #999;">
-                You received this email because we thought our services might be relevant to your business.
-                <br><a href="#unsubscribe" style="color: #999;">Unsubscribe</a> | {settings.BUSINESS_ADDRESS}
-            </p>
+        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <p>{body_text.replace(chr(10), '<br>')}</p>
         </div>
         """
 
-        # Send via Resend API
-        res = requests.post(
-            "https://api.resend.com/emails",
-            headers={
-                "Authorization": f"Bearer {settings.RESEND_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "from": settings.RESEND_FROM_EMAIL,
-                "to": [lead['email']],
-                "subject": f"Partnership with {lead['company_name']}",
-                "html": html_content
-            },
-            timeout=10
-        )
+        email_svc = EmailService()
+        email_svc.send(lead['email'], subject, html_content, body_text)
         
-        if res.status_code in (200, 201):
-            res_data = res.json()
-            log_email_sent(req.id, res_data.get('id', 'unknown'))
-            update_lead_status(req.id, 'SENT')
-            
-            # Also update pitch if it was edited
-            if req.pitch and req.pitch != lead['pitch']:
-                # Update pitch via db connection (add a direct sqlite execution since there's no helper)
-                from database import get_connection, _lock
-                with _lock:
-                    with get_connection() as conn:
-                        conn.execute("UPDATE leads SET pitch = ? WHERE id = ?", (req.pitch, req.id))
-                        conn.commit()
+        log_email_sent(req.id, "sent_via_email_service")
+        update_lead_status(req.id, 'SENT')
+        
+        # Also update pitch if it was edited
+        if req.pitch and req.pitch != lead['pitch']:
+            from database import get_connection, _lock
+            with _lock:
+                with get_connection() as conn:
+                    conn.execute("UPDATE leads SET pitch = ? WHERE id = ?", (req.pitch, req.id))
+                    conn.commit()
 
-            return {"success": True}
-        else:
-            return JSONResponse({"success": False, "error": f"Resend API error: {res.text}"}, status_code=500)
+        return {"success": True}
             
+    except EmailServiceError as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
     except Exception as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
@@ -476,10 +464,21 @@ def serve_dashboard():
     <script>
         const NEEDS_AUTH = {needs_auth};
         let authToken = localStorage.getItem('dashboard_token') || '';
+        const smtpUser = "{settings.SMTP_USER}";
+        const hasSmtp = smtpUser && smtpUser !== "your_email@domain.com";
         const hasResend = "{settings.RESEND_API_KEY}" !== "None" && "{settings.RESEND_API_KEY}" !== "";
 
-        document.getElementById('resend-status').className = hasResend ? 'status-badge connected' : 'status-badge disconnected';
-        document.getElementById('resend-status').textContent = hasResend ? 'LIVE PRODUCTION • RESEND CONNECTED' : 'RESEND NOT CONFIGURED';
+        const statusElem = document.getElementById('resend-status');
+        if (hasSmtp) {{
+            statusElem.className = 'status-badge connected';
+            statusElem.textContent = `LIVE PRODUCTION • GMAIL SMTP (${{smtpUser}})`;
+        }} else if (hasResend) {{
+            statusElem.className = 'status-badge connected';
+            statusElem.textContent = 'LIVE PRODUCTION • RESEND CONNECTED';
+        }} else {{
+            statusElem.className = 'status-badge disconnected';
+            statusElem.textContent = 'EMAIL PROVIDER NOT CONFIGURED';
+        }}
 
         function showToast(message, type = 'success') {{
             const container = document.getElementById('toast-container');
@@ -579,7 +578,7 @@ def serve_dashboard():
                     if (lead.status === 'SENT') {{
                         const statusSent = document.createElement('div');
                         statusSent.className = 'status-sent';
-                        statusSent.textContent = '✉ REAL EMAIL SENT VIA RESEND';
+                        statusSent.textContent = hasSmtp ? `✉ REAL EMAIL SENT VIA GMAIL (${{smtpUser}})` : '✉ REAL EMAIL SENT VIA RESEND';
                         card.appendChild(statusSent);
                     }} else {{
                         pitchBox.setAttribute('contenteditable', 'true');
@@ -629,7 +628,7 @@ def serve_dashboard():
                 const data = await res.json();
                 
                 if(data.success) {{
-                    showToast('Real Email Dispatched Successfully via Resend API!');
+                    showToast(hasSmtp ? `Real Email Sent from ${{smtpUser}} via Gmail SMTP!` : 'Real Email Dispatched Successfully!');
                     fetchLeads();
                 }} else {{
                     showToast(data.error || 'Error sending email', 'error');

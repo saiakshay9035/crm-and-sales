@@ -83,9 +83,9 @@ class EmailService:
             logger.error(f"Failed to send email to {to_email} via Resend: {e}")
             raise EmailServiceError(f"Resend API error: {e}")
 
-    def send_via_smtp(self, to_email: str, subject: str, body_text: str) -> bool:
+    def send_via_smtp(self, to_email: str, subject: str, body_text: str, body_html: str = "") -> bool:
         """Send email via SMTP. Returns True on success."""
-        if not self.smtp_user or self.smtp_user == "your_email@domain.com":
+        if not self.smtp_user or self.smtp_user == "your_email@domain.com" or not self.smtp_pass:
             raise EmailServiceError("SMTP credentials are not configured")
 
         footer_text = (
@@ -100,12 +100,16 @@ class EmailService:
         msg["To"] = to_email
         msg.set_content(body_with_footer)
 
+        if body_html:
+            html_with_footer = self._append_can_spam_footer(body_html)
+            msg.add_alternative(html_with_footer, subtype="html")
+
         try:
             with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
                 server.starttls()
                 server.login(self.smtp_user, self.smtp_pass)
                 server.send_message(msg)
-            logger.info(f"Successfully sent email to {to_email} via SMTP.")
+            logger.info(f"Successfully sent email to {to_email} via SMTP ({self.smtp_user}).")
             return True
         except Exception as e:
             logger.error(f"Failed to send email to {to_email} via SMTP: {e}")
@@ -113,20 +117,31 @@ class EmailService:
 
     def send(self, to_email: str, subject: str, body_html: str, body_text: str = "") -> bool:
         """
-        Primary dispatch method. Tries Resend first, falls back to SMTP.
+        Primary dispatch method. Tries SMTP (Gmail) first if configured, falls back to Resend API.
         Returns True on success.
         """
-        # Try Resend first
+        has_smtp = bool(self.smtp_user and self.smtp_user != "your_email@domain.com" and self.smtp_pass)
+        
+        # If SMTP (Gmail) is configured, try SMTP first
+        if has_smtp:
+            try:
+                return self.send_via_smtp(to_email, subject, body_text or body_html, body_html)
+            except EmailServiceError as e:
+                logger.warning(f"SMTP failed ({e}), falling back to Resend API.")
+
+        # Try Resend API as fallback or primary
         if self.resend_api_key:
             try:
                 self.send_via_resend(to_email, subject, body_html)
                 return True
             except EmailServiceError as e:
-                logger.warning(f"Resend failed ({e}), falling back to SMTP.")
+                logger.warning(f"Resend failed ({e}).")
 
-        # Fallback to SMTP
-        try:
-            return self.send_via_smtp(to_email, subject, body_text or body_html)
-        except EmailServiceError as e:
-            logger.error(f"Both Resend and SMTP failed for {to_email}. Last error: {e}")
-            raise EmailServiceError(f"All email dispatch methods failed. Last error: {e}")
+        # Final try SMTP if not tried yet
+        if not has_smtp:
+            try:
+                return self.send_via_smtp(to_email, subject, body_text or body_html, body_html)
+            except EmailServiceError as e:
+                pass
+
+        raise EmailServiceError(f"All email dispatch methods failed for {to_email}.")
