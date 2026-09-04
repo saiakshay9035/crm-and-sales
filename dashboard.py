@@ -5,7 +5,8 @@ import os
 import requests
 from config import settings
 
-PORT = 5000
+PORT = 5050
+socketserver.TCPServer.allow_reuse_address = True
 STORE_FILE = "lead_store.json"
 
 def load_leads():
