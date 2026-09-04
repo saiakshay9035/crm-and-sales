@@ -1,7 +1,8 @@
 [build]
-  command = "pip install -r requirements.txt"
+  command = "npm run build"
   functions = "netlify/functions"
   publish = "public"
+
 
 [[redirects]]
   from = "/api/*"
