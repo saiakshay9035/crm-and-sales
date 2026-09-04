@@ -514,6 +514,12 @@ class StartupLeadScraper:
         return real_pool[:count]
 
     def _extract_founder_name(self, title: str, body: str) -> str:
+        non_name_words = {
+            "startup", "company", "app", "platform", "tech", "software", "inc", "llc",
+            "solutions", "group", "ai", "saas", "matching", "every", "buy", "email",
+            "database", "list", "contact", "support", "admin", "sales", "team", "privacy",
+            "help", "founders", "network", "fundraising", "directory", "service", "tools"
+        }
         name_patterns = [
             r"([A-Z][a-z]+\s[A-Z][a-z]+),?\s+(?:Founder|Co-Founder|CEO|CTO)",
             r"(?:Founder|Co-Founder|CEO)\s+([A-Z][a-z]+\s[A-Z][a-z]+)",
@@ -524,9 +530,11 @@ class StartupLeadScraper:
             match = re.search(pat, text)
             if match:
                 name = match.group(1).strip()
-                if len(name.split()) >= 2 and name not in ["Founder &", "Co Founder"]:
+                words = [w.lower() for w in name.split()]
+                if len(words) >= 2 and not any(w in non_name_words for w in words):
                     return name
         return ""
+
 
     def _extract_company_name(self, domain: str, title: str) -> str:
         if title:

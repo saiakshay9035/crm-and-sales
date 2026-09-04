@@ -17,14 +17,23 @@ kept_count = 0
 for lead_id, company_name, founder_name, email, domain in rows:
     should_delete = False
     
+    non_name_words = {
+        "startup", "company", "app", "platform", "tech", "software", "inc", "llc",
+        "solutions", "group", "ai", "saas", "matching", "every", "buy", "email",
+        "database", "list", "contact", "support", "admin", "sales", "team", "privacy",
+        "help", "founders", "network", "fundraising", "directory", "service", "tools"
+    }
+
     # 1. Generic email prefix check
     local_part = email.split("@")[0].lower() if email and "@" in email else ""
     if local_part in GENERIC_EMAIL_PREFIXES:
         should_delete = True
         
     # 2. Generic founder name check
-    if not founder_name or founder_name.strip() in ["Founder", "Email Contacts", "Founder & CEO", "Admin", "Support"] or len(founder_name.split()) < 2:
+    fn_words = (founder_name or "").lower().split()
+    if not founder_name or founder_name.strip() in ["Founder", "Email Contacts", "Founder & CEO", "Admin", "Support"] or len(fn_words) < 2 or any(w in non_name_words for w in fn_words):
         should_delete = True
+
         
     # 3. Aggregator domain check
     domain_clean = (domain or "").lower()
