@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     # TryCompAI CRM (Comp AI CRM) Settings
     CRM_API_URL: str = "http://localhost:3000/api"
     CRM_API_KEY: str = "your_comp_crm_key"
+    NEON_DSN: str = ""
+
     
     # Email Outreach Settings (SMTP / Free Mailer)
     EMAIL_PROVIDER: str = "smtp"  # "smtp" or "resend"

@@ -1,13 +1,13 @@
+import os
 import logging
 import uuid
 import psycopg2
 from typing import Dict, Any, Optional
 from config import settings
 
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("CompAICRM")
-
-NEON_DSN = "postgresql://neondb_owner:npg_1LeXsPiQW2oq@ep-delicate-morning-ayqpau96.c-5.us-east-2.aws.neon.tech/neondb?sslmode=require"
 
 class CRMError(Exception):
     """Custom exception for CRM-related errors."""
@@ -18,8 +18,9 @@ class CompAICRMClient:
     Direct Neon PostgreSQL Integration Client for Comp AI CRM.
     Captures companies, contacts, pitches, and outreach activities directly into Neon DB.
     """
-    def __init__(self, dsn: str = NEON_DSN) -> None:
-        self.dsn = dsn
+    def __init__(self, dsn: Optional[str] = None) -> None:
+        self.dsn = dsn or getattr(settings, "NEON_DSN", "") or os.environ.get("NEON_DSN", "")
+
 
     def _get_connection(self):
         return psycopg2.connect(self.dsn)
