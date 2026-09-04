@@ -1,0 +1,4 @@
+requests>=2.31.0
+pydantic-settings>=2.0.0
+scrapegraphai>=1.0.0
+composio-core>=0.5.0
