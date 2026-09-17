@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     NEON_DSN: str = ""
 
     
+    # Firecrawl API Settings (Deep Website Crawling & Email Extraction)
+    FIRECRAWL_API_KEY: str = ""
+
     # Email Outreach Settings (SMTP / Free Mailer)
     EMAIL_PROVIDER: str = "smtp"  # "smtp" or "resend"
     SMTP_SERVER: str = "smtp.gmail.com"
@@ -37,5 +40,10 @@ class Settings(BaseSettings):
     # New settings
     DASHBOARD_AUTH_TOKEN: str = ""
     BUSINESS_ADDRESS: str = ""
+    
+    # Platform Identity (used in outreach templates)
+    SENDER_NAME: str = ""
+    COMPANY_NAME: str = ""
+    VALUE_PROPOSITION: str = ""
 
 settings = Settings()

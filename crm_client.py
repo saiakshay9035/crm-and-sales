@@ -25,14 +25,18 @@ class CompAICRMClient:
     def _get_connection(self):
         return psycopg2.connect(self.dsn)
 
-    def _get_default_author_id(self, cur) -> str:
+    def _get_default_author_id(self, cur, conn=None) -> str:
         try:
             cur.execute('SELECT id FROM "user" LIMIT 1;')
             row = cur.fetchone()
             if row:
                 return row[0]
         except Exception:
-            pass
+            if conn:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
         return "seed-ada-okafor"
 
     def create_or_update_company(self, name: str, domain: str, location: str, summary: str) -> dict[str, Any]:
@@ -43,7 +47,7 @@ class CompAICRMClient:
         try:
             with self._get_connection() as conn:
                 with conn.cursor() as cur:
-                    author_id = self._get_default_author_id(cur)
+                    author_id = self._get_default_author_id(cur, conn=conn)
                     
                     if domain:
                         cur.execute('SELECT id, name, domain FROM company WHERE domain = %s AND "archivedAt" IS NULL LIMIT 1;', (domain,))

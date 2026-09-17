@@ -1,7 +1,7 @@
 import logging
 import threading
 import time
-from typing import Any
+from typing import Any, List
 
 from database import add_lead, get_all_leads
 from enricher import AIProspectEnricher
@@ -13,9 +13,9 @@ logger = logging.getLogger("ICPBackgroundWorker")
 
 class ICPBackgroundWorker:
     """
-    Autonomous background worker for Pre-Seed / Seed SaaS founders (<10 team).
-    Continuously searches target locations (US, AUS, EU, Dubai), enriches pitches,
-    and populates SQLite database for human approval.
+    Universal autonomous background worker for lead discovery.
+    Continuously searches for prospects matching user-defined ICP criteria,
+    enriches with AI pitches, and populates SQLite database for human approval.
     """
 
     def __init__(self, interval_seconds: int = 60):
@@ -35,13 +35,13 @@ class ICPBackgroundWorker:
         }
 
         self.queries = [
-            "Y Combinator B2B SaaS founder US AUS EU Dubai",
-            "Pre-seed SaaS startup founder San Francisco Sydney Dubai",
-            "Early stage SaaS founder CEO team under 10",
-            "Angel invested SaaS startup CEO Sydney Dubai San Francisco",
-            "Stealth AI SaaS startup founder contact email",
-            "Series A B2B SaaS founder CEO contact",
-            "DevOps AI tool startup founder email US EU"
+            "B2B startup founder CEO contact email",
+            "small business owner managing director contact",
+            "tech company founder CEO US Europe email",
+            "SaaS startup co-founder CTO contact",
+            "startup founder CEO Sydney Dubai London email",
+            "growing company CEO founder contact email",
+            "venture backed startup founder contact"
         ]
         self._query_index = 0
 
@@ -78,6 +78,45 @@ class ICPBackgroundWorker:
             "current_query": self.stats["current_query"]
         }
 
+    def set_queries(self, queries: List[str]):
+        """Dynamically updates background search queries based on active ICP prompt."""
+        if queries:
+            self.queries = queries
+            self._query_index = 0
+            logger.info(f"[ICP Worker] Dynamically updated search queries ({len(queries)} queries active): {queries[:2]}...")
+
+    def send_lead_alert_email(self, lead: dict):
+        """Sends instant real-time email notification when a new ICP lead is verified."""
+        try:
+            from email_service import EmailService
+            from config import settings
+            target_email = getattr(settings, 'SMTP_USER', '')
+            if not target_email or "@" not in target_email or "domain.com" in target_email:
+                return
+            
+            email_svc = EmailService()
+            subject = f"⚡ New ICP Lead Verified: {lead.get('founder_name')} @ {lead.get('company_name')}"
+            html_body = f"""
+            <div style="font-family: system-ui, sans-serif; background: #0b1120; color: #f3f4f6; padding: 24px; border-radius: 12px;">
+                <h2 style="color: #38bdf8; margin-top: 0;">⚡ New Verified ICP Lead Discovered!</h2>
+                <div style="background: #1e293b; padding: 16px; border-radius: 8px; border: 1px solid #334155;">
+                    <h3 style="margin: 0 0 8px 0; color: #f8fafc;">{lead.get('founder_name')} ({lead.get('founder_title', 'Founder & CEO')})</h3>
+                    <p style="margin: 4px 0; color: #94a3b8;"><strong>Company:</strong> {lead.get('company_name')} ({lead.get('domain')})</p>
+                    <p style="margin: 4px 0; color: #94a3b8;"><strong>Email:</strong> <span style="color: #34d399;">{lead.get('email')}</span> (Verified MX & Deliverable)</p>
+                    <p style="margin: 4px 0; color: #94a3b8;"><strong>LinkedIn:</strong> <a href="{lead.get('linkedin_url')}" style="color: #60a5fa;">{lead.get('linkedin_url')}</a></p>
+                    <p style="margin: 4px 0; color: #94a3b8;"><strong>Location:</strong> {lead.get('location')}</p>
+                    <p style="margin: 12px 0 4px 0; color: #cbd5e1; font-style: italic;">"{lead.get('tech_summary')}"</p>
+                </div>
+                <div style="margin-top: 16px;">
+                    <a href="http://localhost:5050" style="background: #3b82f6; color: #ffffff; padding: 10px 18px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Open Dashboard & Approve Outreach →</a>
+                </div>
+            </div>
+            """
+            email_svc.send(target_email, subject, html_body, f"New ICP Lead: {lead.get('founder_name')} @ {lead.get('company_name')} ({lead.get('email')})")
+            logger.info(f"[ICP Worker Daemon] Sent real-time lead alert email to {target_email} for {lead.get('founder_name')} @ {lead.get('company_name')}")
+        except Exception as e:
+            logger.warning(f"[ICP Worker Daemon] Failed to send real-time lead alert email: {e}")
+
     def _run_loop(self):
         """Main execution loop."""
         time.sleep(2)
@@ -96,6 +135,15 @@ class ICPBackgroundWorker:
                 # Get existing domains to prevent duplicates
                 existing_leads = get_all_leads()
                 existing_domains = {l.get("domain", "").lower() for l in existing_leads if l.get("domain")}
+
+                unseen_raw = [l for l in raw_leads if l.get("domain", "").lower() not in existing_domains]
+                if not unseen_raw:
+                    logger.info(f"[ICP Worker Daemon] Live discovery yielded 0 new unseen domains for query '{query}'. Sleeping until next cycle...")
+                    self._query_index += 1
+                    time.sleep(self.interval_seconds)
+                    continue
+
+                raw_leads = unseen_raw
 
                 new_count = 0
                 for lead in raw_leads:
@@ -118,7 +166,11 @@ class ICPBackgroundWorker:
                     deliv_check = verify_strict_email_deliverability(
                         email=lead["email"],
                         domain=lead["domain"],
-                        founder_name=lead["founder_name"]
+                        founder_name=lead["founder_name"],
+                        linkedin_url=lead.get("linkedin_url", ""),
+                        company_name=lead.get("company_name", ""),
+                        founder_title=lead.get("founder_title", ""),
+                        tech_summary=lead.get("tech_summary", "")
                     )
                     
                     lead["deliverability_score"] = deliv_check["score"]
@@ -138,6 +190,9 @@ class ICPBackgroundWorker:
                     existing_domains.add(domain)
                     new_count += 1
                     self.stats["total_discovered"] += 1
+
+                    # 6. Send instant real-time lead alert email notification
+                    self.send_lead_alert_email(lead)
 
                 logger.info(f"[ICP Worker Daemon] Batch finished. Added {new_count} new real ICP leads.")
 

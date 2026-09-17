@@ -38,14 +38,15 @@ class EmailService:
         self.smtp_pass = settings.SMTP_PASS
         self.business_address = business_address if business_address is not None else settings.BUSINESS_ADDRESS
 
-    def _append_can_spam_footer(self, body_html: str) -> str:
-        """Appends a CAN-SPAM compliant footer to the HTML email body."""
+    def _append_can_spam_footer(self, body_html: str, to_email: str = "") -> str:
+        """Appends a CAN-SPAM compliant footer with active opt-out URL to the HTML email body."""
+        unsub_url = f"http://localhost:5050/api/unsubscribe?email={to_email}" if to_email else "http://localhost:5050/api/unsubscribe"
         footer_html = f"""
         <br><br>
         <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
         <p style="font-size: 11px; color: #999;">
-            You received this email because we thought our services might be relevant to your business.
-            <br><a href="#unsubscribe" style="color: #999;">Unsubscribe</a> | {self.business_address}
+            You received this email because our services are relevant to your company's growth.
+            <br><a href="{unsub_url}" style="color: #999;">Unsubscribe & Opt Out</a> | {self.business_address}
         </p>
         """
         return body_html + footer_html
@@ -55,7 +56,7 @@ class EmailService:
         if not self.resend_api_key:
             raise EmailServiceError("RESEND_API_KEY is not configured")
 
-        html_with_footer = self._append_can_spam_footer(body_html)
+        html_with_footer = self._append_can_spam_footer(body_html, to_email)
 
         headers = {
             "Authorization": f"Bearer {self.resend_api_key}",
@@ -102,7 +103,7 @@ class EmailService:
         msg.set_content(body_with_footer)
 
         if body_html:
-            html_with_footer = self._append_can_spam_footer(body_html)
+            html_with_footer = self._append_can_spam_footer(body_html, to_email)
             msg.add_alternative(html_with_footer, subtype="html")
 
         try:

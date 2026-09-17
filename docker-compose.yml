@@ -1,13 +1,13 @@
 version: '3.8'
 
 services:
-  app:
-    build:
-      context: .
+  ai-lead-platform:
+    build: .
     ports:
       - "5050:5050"
-    env_file:
-      - .env
+    environment:
+      - PORT=5050
+      - DB_PATH=/app/leads.db
     volumes:
-      - ./data:/app/data
+      - ./leads.db:/app/leads.db
     restart: unless-stopped

@@ -1,4 +1,5 @@
 import html
+import json
 import logging
 import time
 
@@ -9,24 +10,26 @@ from config import settings
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("AIEnricher")
 
+
 PITCH_PROMPT_TEMPLATE = """
-Write a short, high-converting B2B cold email (under 90 words) offering managed tech talent & project delivery.
+Write a short, high-converting B2B cold email (under 90 words).
 
 Target Lead:
-- Founder: {founder_name}
+- Contact: {founder_name}
 - Company: {company_name} ({location})
 - What they do: {summary}
+- Detected Buying Triggers: {buying_triggers}
+- Key Pain Signals: {pain_signals}
 
-Value Proposition:
-- Provide top senior Indian developers (React, Node, Python, Mobile, DevOps).
-- Full end-to-end Product & Project Management included (they don't have to manage developers or track sprints).
-- Saves 60% compared to local US/EU/AUS developer rates.
+Your Value Proposition:
+{value_proposition}
 
 Requirements:
-- Subject line included.
-- Hook mentioning their product/company.
+- Subject line included (format: "Subject: ..." on first line).
+- Hook mentioning their product/company and specific buying triggers/pain signals.
 - Direct value offer + low-friction call to action.
 - Professional, concise, no fluff or fake praise.
+- Sign off with: {sender_name}
 """
 
 def retry_request(func, max_retries=3):
@@ -46,8 +49,8 @@ def retry_request(func, max_retries=3):
 
 class AIProspectEnricher:
     """
-    Uses LLMs (Ollama / Groq / Gemini / OpenAI) to research prospects
-    and craft hyper-personalized outreach pitches for offshore talent & managed delivery.
+    Uses LLMs (Ollama / Groq / OpenAI) to research prospects
+    and craft hyper-personalized outreach pitches based on user-defined value proposition.
     """
     def __init__(self):
         self.provider = settings.LLM_PROVIDER.lower()
@@ -56,7 +59,7 @@ class AIProspectEnricher:
         res = requests.post(
             f"{settings.OLLAMA_BASE_URL}/api/generate",
             json={"model": settings.OLLAMA_MODEL, "prompt": prompt, "stream": False},
-            timeout=2
+            timeout=15
         )
         res.raise_for_status()
         return res.json().get("response", "").strip()
@@ -88,7 +91,7 @@ class AIProspectEnricher:
         res = requests.post(
             "https://api.openai.com/v1/chat/completions",
             json={
-                "model": "gpt-4o",  # Defaulting to a generic openai model if not specified, though not in settings
+                "model": "gpt-4o",
                 "messages": [{"role": "user", "content": prompt}]
             },
             headers=headers,
@@ -97,16 +100,39 @@ class AIProspectEnricher:
         res.raise_for_status()
         return res.json()["choices"][0]["message"]["content"].strip()
 
-    def generate_pitch(self, founder_name: str, company_name: str, location: str, summary: str) -> str:
-        """Generates a high-converting personalized cold email."""
+    def generate_pitch(
+        self,
+        founder_name: str,
+        company_name: str,
+        location: str,
+        summary: str,
+        buying_triggers: list = None,
+        pain_signals: list = None,
+        value_proposition: str = "",
+        sender_name: str = ""
+    ) -> str:
+        """Generates a high-converting personalized cold email using detected evidence."""
         
+        b_trig = ", ".join(buying_triggers) if isinstance(buying_triggers, list) and buying_triggers else "Growth & scaling"
+        p_sig = ", ".join(pain_signals) if isinstance(pain_signals, list) and pain_signals else "Operational efficiency"
+
+        # Use configured identity or fallback
+        if not value_proposition:
+            value_proposition = getattr(settings, 'VALUE_PROPOSITION', '') or "We help companies like yours solve critical challenges and accelerate growth."
+        if not sender_name:
+            sender_name = getattr(settings, 'SENDER_NAME', '') or "The Team"
+
         prompt = PITCH_PROMPT_TEMPLATE.format(
             founder_name=founder_name,
             company_name=company_name,
             location=location,
-            summary=summary
+            summary=summary,
+            buying_triggers=b_trig,
+            pain_signals=p_sig,
+            value_proposition=value_proposition,
+            sender_name=sender_name
         )
-        logger.info(f"[AI Enricher] Generating pitch for {founder_name} @ {company_name} using {self.provider}...")
+        logger.info(f"[AI Enricher] Generating evidence-based pitch for {founder_name} @ {company_name} using {self.provider}...")
 
         pitch = ""
         try:
@@ -122,28 +148,43 @@ class AIProspectEnricher:
             logger.warning(f"[{self.provider}] Error generating pitch ({e}). Falling back to template generator.")
 
         if not pitch:
-            pitch = self._fallback_template(founder_name, company_name, location, summary)
+            pitch = self._fallback_template(founder_name, company_name, location, summary, buying_triggers, pain_signals)
 
         return html.unescape(pitch)
 
-    def _fallback_template(self, founder_name: str, company_name: str, location: str, summary: str) -> str:
+    def _fallback_template(
+        self,
+        founder_name: str,
+        company_name: str,
+        location: str,
+        summary: str,
+        buying_triggers: list = None,
+        pain_signals: list = None,
+        value_proposition: str = "",
+        sender_name: str = ""
+    ) -> str:
         clean_summary = summary.strip().rstrip(".")
-        product_hook = f"Saw that {company_name} is building {clean_summary}." if clean_summary else f"Saw {company_name} is scaling tech in {location}."
-        
-        pitch = f"""Subject: Engineering delivery for {company_name} / Quick question
+        if " (" in clean_summary:
+            clean_summary = clean_summary.split(" (")[0]
+
+        product_hook = f"Saw that {company_name} is building {clean_summary}." if clean_summary else f"Noticed {company_name} is growing in {location}."
+
+        if not sender_name:
+            sender_name = getattr(settings, 'SENDER_NAME', '') or "The Team"
+        if not value_proposition:
+            value_proposition = getattr(settings, 'VALUE_PROPOSITION', '') or ""
+
+        value_line = f"\n{value_proposition}\n" if value_proposition else "\nWe help companies like yours solve key growth challenges with tailored solutions.\n"
+
+        pitch = f"""Subject: Quick question for {company_name}
 
 Hi {founder_name},
 
 {product_hook}
-
-Founders scaling fast often struggle with high local developer salaries and the management drag of tracking remote freelancers who miss sprint deadlines.
-
-We solve both: We provide senior Indian software engineers AND handle full end-to-end Product & Project Management—so features get delivered on time without taking up your week.
-
-We recently helped a fast-growing startup ship their core platform at 60% lower cost.
-
-Open to seeing a 2-minute video on how we manage delivery?
+{value_line}
+Would love to share how we've helped similar companies. Open to a quick chat this week?
 
 Best,
-Sai Akshay"""
+{sender_name}"""
         return html.unescape(pitch)
+

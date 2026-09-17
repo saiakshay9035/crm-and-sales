@@ -3,18 +3,19 @@ import sqlite3
 from scraper import (
     AGGREGATOR_DOMAINS,
     GENERIC_EMAIL_PREFIXES,
+    is_excluded_location,
 )
 
 conn = sqlite3.connect('leads.db')
 cursor = conn.cursor()
 
-cursor.execute("SELECT id, company_name, founder_name, email, domain FROM leads")
+cursor.execute("SELECT id, company_name, founder_name, email, domain, location, tech_summary FROM leads")
 rows = cursor.fetchall()
 
 deleted_count = 0
 kept_count = 0
 
-for lead_id, company_name, founder_name, email, domain in rows:
+for lead_id, company_name, founder_name, email, domain, location, tech_summary in rows:
     should_delete = False
     
     non_name_words = {
@@ -34,11 +35,14 @@ for lead_id, company_name, founder_name, email, domain in rows:
     if not founder_name or founder_name.strip() in ["Founder", "Email Contacts", "Founder & CEO", "Admin", "Support"] or len(fn_words) < 2 or any(w in non_name_words for w in fn_words):
         should_delete = True
 
-        
     # 3. Aggregator domain check
     domain_clean = (domain or "").lower()
     email_clean = (email or "").lower()
     if any(agg in domain_clean for agg in AGGREGATOR_DOMAINS) or any(agg in email_clean for agg in AGGREGATOR_DOMAINS):
+        should_delete = True
+
+    # 4. Excluded domestic/Indian location check
+    if is_excluded_location(location, tech_summary, founder_name, company_name):
         should_delete = True
         
     if should_delete:

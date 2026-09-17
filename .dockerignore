@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+leads.db
+*.db
+*.log
+__pycache__
+.pytest_cache
+.ruff_cache
+.git
+.github
+tests/
+Dockerfile
+docker-compose.yml
