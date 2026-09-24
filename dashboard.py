@@ -136,6 +136,27 @@ class SaveICPProfileRequest(BaseModel):
     raw_prompt: str
     criteria: dict | None = None
 
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    name: str
+    org_name: str | None = None
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class InviteUserRequest(BaseModel):
+    email: str
+    role: str | None = "MEMBER"
+    org_id: str | None = "org_default"
+
+class AcceptInviteRequest(BaseModel):
+    token: str
+    password: str
+    name: str
+
+
 
 # --- Helpers ---
 def escape_lead(lead: dict) -> dict:
@@ -201,6 +222,82 @@ def save_icp_profile_endpoint(req: SaveICPProfileRequest):
         return {"success": True, "message": "ICP Profile Saved"}
     except Exception as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/api/auth/register")
+def register_endpoint(req: RegisterRequest):
+    try:
+        from database import create_user
+        user = create_user(req.email, req.password, req.name, req.org_name)
+        return {"success": True, "user": user}
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+@app.post("/api/auth/login")
+def login_endpoint(req: LoginRequest):
+    try:
+        from database import authenticate_user
+        user = authenticate_user(req.email, req.password)
+        return {"success": True, "user": user}
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+@app.post("/api/invites/create")
+def create_invite_endpoint(req: InviteUserRequest):
+    try:
+        from database import create_invite
+        from email_service import EmailService
+        inv = create_invite(req.org_id or "org_default", req.email, req.role or "MEMBER")
+        invite_url = f"http://localhost:5050/?invite={inv['token']}"
+        
+        try:
+            email_svc = EmailService()
+            subject = "You've been invited to join AI Lead Acquisition Platform"
+            html_body = f"""
+            <div style="font-family: system-ui; background: #0b1120; color: #f3f4f6; padding: 24px; border-radius: 12px;">
+                <h2 style="color: #38bdf8;">You're Invited!</h2>
+                <p>You have been invited to collaborate on <strong>AI Lead Acquisition Platform</strong>.</p>
+                <div style="margin: 20px 0;">
+                    <a href="{invite_url}" style="background: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Accept Invitation & Join →</a>
+                </div>
+                <p style="color: #94a3b8; font-size: 12px;">Or copy this link: {invite_url}</p>
+            </div>
+            """
+            email_svc.send(req.email, subject, html_body, f"Accept invitation: {invite_url}")
+        except Exception:
+            pass
+
+        return {"success": True, "invite": inv, "invite_url": invite_url}
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+@app.get("/api/invites/info")
+def invite_info_endpoint(token: str):
+    try:
+        from database import get_invite_by_token
+        inv = get_invite_by_token(token)
+        return {"success": True, "invite": inv}
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+@app.post("/api/invites/accept")
+def accept_invite_endpoint(req: AcceptInviteRequest):
+    try:
+        from database import accept_invite
+        user = accept_invite(req.token, req.password, req.name)
+        return {"success": True, "user": user}
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+@app.get("/api/team/members")
+def get_team_members_endpoint(org_id: str = "org_default"):
+    try:
+        from database import get_org_invites, get_org_members
+        members = get_org_members(org_id)
+        invites = get_org_invites(org_id)
+        return {"success": True, "members": members, "invites": invites}
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
 
 @app.get("/api/leads")
 def get_leads():
@@ -957,6 +1054,7 @@ def serve_dashboard():
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
             <h2 style="font-size: 18px; margin: 0;">Captured ICP Founders & Investors</h2>
             <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button class="btn" style="background: #8b5cf6; color: white; width: auto; padding: 10px 16px;" onclick="openInviteModal()">👥 Invite Team & Users</button>
                 <button class="btn" style="background: #10b981; color: white; width: auto; padding: 10px 16px;" onclick="downloadCSVExport()">📊 Export to Excel / CSV</button>
                 <button class="btn" style="background: #0284c7; color: white; width: auto; padding: 10px 16px;" onclick="downloadJSONExport()">📁 Export JSON</button>
                 <button class="btn" style="background: #ef4444; color: white; width: auto; padding: 10px 16px;" onclick="clearStaleLeadsAndRescan()">🧹 Purge & Rescan</button>
@@ -964,6 +1062,38 @@ def serve_dashboard():
                 <button class="btn" style="background: var(--accent-color); color: white; width: auto; padding: 10px 16px;" onclick="fetchLeads()">Refresh</button>
             </div>
         </div>
+
+    <!-- Invite Team & Users Modal -->
+    <div class="modal-overlay" id="invite-modal" style="display: none;">
+        <div class="modal-content" style="max-width: 520px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h2 style="margin: 0; color: #60a5fa;">👥 Invite Users to Multi-Tenant SaaS</h2>
+                <button onclick="closeInviteModal()" style="background: none; border: none; color: #94a3b8; font-size: 20px; cursor: pointer;">✕</button>
+            </div>
+            <p style="color: #94a3b8; font-size: 13px; margin-top: 0;">Invite team members, clients, or founders to collaborate in your organization workspace.</p>
+            
+            <label style="font-size: 12px; font-weight: 700; color: #cbd5e1;">Target Email Address</label>
+            <input type="email" id="invite-email-input" placeholder="colleague@company.com or client@startup.com" />
+            
+            <label style="font-size: 12px; font-weight: 700; color: #cbd5e1;">Assign Role</label>
+            <select id="invite-role-input" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #334155; background: #090d16; color: white; margin: 8px 0 16px 0;">
+                <option value="MEMBER">Member (Can manage ICPs & Outreach)</option>
+                <option value="ADMIN">Admin (Full Workspace Management)</option>
+            </select>
+            
+            <div style="display: flex; gap: 10px;">
+                <button class="btn btn-send" style="padding: 12px;" onclick="sendTeamInvite()">⚡ Send Email Invite & Generate Link</button>
+                <button class="btn btn-remove" style="padding: 12px;" onclick="closeInviteModal()">Cancel</button>
+            </div>
+
+            <div id="invite-result-box" style="display: none; margin-top: 16px; background: #090d16; border: 1px solid #3b82f6; border-radius: 8px; padding: 14px;">
+                <p style="margin: 0 0 6px 0; font-size: 12px; font-weight: 700; color: #34d399;">✓ Invitation Created!</p>
+                <p style="margin: 0 0 8px 0; font-size: 11px; color: #94a3b8;">Share this direct invite registration link:</p>
+                <input type="text" id="generated-invite-link" readonly style="margin: 0; font-size: 12px; color: #60a5fa;" onclick="this.select()" />
+            </div>
+        </div>
+    </div>
+
 
 
 
@@ -1024,6 +1154,42 @@ def serve_dashboard():
                     downloadAnchor.remove();
                 }});
         }}
+
+        function openInviteModal() {{
+            document.getElementById('invite-modal').style.display = 'flex';
+        }}
+        function closeInviteModal() {{
+            document.getElementById('invite-modal').style.display = 'none';
+            document.getElementById('invite-result-box').style.display = 'none';
+        }}
+        async function sendTeamInvite() {{
+            const email = document.getElementById('invite-email-input').value.trim();
+            const role = document.getElementById('invite-role-input').value;
+            if (!email || !email.includes('@')) {{
+                showToast("Please enter a valid email address.", "danger");
+                return;
+            }}
+            
+            showToast("Generating invitation link...", "success");
+            try {{
+                const res = await fetch('/api/invites/create', {{
+                    method: 'POST',
+                    headers: getHeaders(),
+                    body: JSON.stringify({{ email: email, role: role, org_id: "org_default" }})
+                }});
+                const data = await res.json();
+                if (data.success) {{
+                    showToast("Invite generated! Email sent to " + email, "success");
+                    document.getElementById('invite-result-box').style.display = 'block';
+                    document.getElementById('generated-invite-link').value = window.location.origin + "/?invite=" + data.invite.token;
+                }} else {{
+                    showToast("Error creating invite: " + data.error, "danger");
+                }}
+            }} catch(e) {{
+                showToast("Failed to send invite: " + e.message, "danger");
+            }}
+        }}
+
 
 
         function checkAuth() {{

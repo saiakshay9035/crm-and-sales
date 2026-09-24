@@ -62,7 +62,8 @@ def init_db():
             'email_source': 'TEXT DEFAULT "company_website"',
             'last_verified_at': 'TIMESTAMP',
             'sequence_step': 'INTEGER DEFAULT 1',
-            'outcome_status': 'TEXT DEFAULT "PENDING"'
+            'outcome_status': 'TEXT DEFAULT "PENDING"',
+            'org_id': 'TEXT DEFAULT "org_default"'
         }
         for col_name, col_type in new_cols.items():
             if col_name not in columns:
@@ -87,6 +88,32 @@ def init_db():
                     plan_tier TEXT DEFAULT 'STARTER',
                     monthly_lead_limit INTEGER DEFAULT 500,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+        conn.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id TEXT PRIMARY KEY,
+                    org_id TEXT NOT NULL,
+                    email TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    name TEXT,
+                    role TEXT DEFAULT 'MEMBER',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(org_id) REFERENCES organizations(id)
+                )
+            ''')
+
+        conn.execute('''
+                CREATE TABLE IF NOT EXISTS invites (
+                    id TEXT PRIMARY KEY,
+                    org_id TEXT NOT NULL,
+                    email TEXT NOT NULL,
+                    role TEXT DEFAULT 'MEMBER',
+                    token TEXT UNIQUE NOT NULL,
+                    status TEXT DEFAULT 'PENDING',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(org_id) REFERENCES organizations(id)
                 )
             ''')
 
@@ -130,13 +157,14 @@ def init_db():
                 )
             ''')
 
-        # Insert default organization & ICP profiles if missing
+        # Insert default organization & superadmin if missing
         conn.execute('''
                 INSERT OR IGNORE INTO organizations (id, name, plan_tier)
                 VALUES ('org_default', 'Primary Workspace', 'GROWTH')
             ''')
 
         conn.commit()
+
 
 def get_all_leads():
     with get_connection() as conn:
@@ -323,6 +351,113 @@ def get_connected_accounts(org_id: str = "org_default"):
         cursor = conn.execute('SELECT * FROM connected_accounts WHERE org_id = ?', (org_id,))
         return [dict(row) for row in cursor.fetchall()]
 
+# --- User Authentication & Multi-Tenant Invites ---
+import hashlib
+import uuid
+
+def _hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+
+def create_organization(name: str, plan_tier: str = 'GROWTH') -> str:
+    org_id = f"org_{str(uuid.uuid4())[:8]}"
+    with _lock, get_connection() as conn:
+        conn.execute('''
+            INSERT INTO organizations (id, name, plan_tier)
+            VALUES (?, ?, ?)
+        ''', (org_id, name, plan_tier))
+        conn.commit()
+    return org_id
+
+def create_user(email: str, password: str, name: str, org_name: str = None, role: str = 'MEMBER') -> dict:
+    email_clean = email.strip().lower()
+    pw_hash = _hash_password(password)
+    user_id = f"usr_{str(uuid.uuid4())[:8]}"
+    
+    with _lock, get_connection() as conn:
+        cursor = conn.execute("SELECT * FROM users WHERE email = ?", (email_clean,))
+        if cursor.fetchone():
+            raise ValueError("An account with this email address already exists.")
+
+        org_id = 'org_default'
+        if org_name:
+            org_id = f"org_{str(uuid.uuid4())[:8]}"
+            conn.execute("INSERT INTO organizations (id, name, plan_tier) VALUES (?, ?, 'GROWTH')", (org_id, org_name))
+            role = 'OWNER'
+
+        conn.execute('''
+            INSERT INTO users (id, org_id, email, password_hash, name, role)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (user_id, org_id, email_clean, pw_hash, name, role))
+        conn.commit()
+
+    return {"user_id": user_id, "org_id": org_id, "email": email_clean, "name": name, "role": role}
+
+def authenticate_user(email: str, password: str) -> dict:
+    email_clean = email.strip().lower()
+    pw_hash = _hash_password(password)
+    with get_connection() as conn:
+        cursor = conn.execute('''
+            SELECT u.id as user_id, u.org_id, u.email, u.name, u.role, o.name as org_name, o.plan_tier
+            FROM users u
+            JOIN organizations o ON u.org_id = o.id
+            WHERE u.email = ? AND u.password_hash = ?
+        ''', (email_clean, pw_hash))
+        row = cursor.fetchone()
+        if not row:
+            raise ValueError("Invalid email or password.")
+        return dict(row)
+
+def create_invite(org_id: str, target_email: str, role: str = 'MEMBER') -> dict:
+    target_clean = target_email.strip().lower()
+    invite_id = f"inv_{str(uuid.uuid4())[:8]}"
+    token = f"tok_{str(uuid.uuid4())[:16]}"
+    with _lock, get_connection() as conn:
+        conn.execute('''
+            INSERT INTO invites (id, org_id, email, role, token, status)
+            VALUES (?, ?, ?, ?, ?, 'PENDING')
+        ''', (invite_id, org_id, target_clean, role, token))
+        conn.commit()
+    return {"invite_id": invite_id, "org_id": org_id, "email": target_clean, "role": role, "token": token}
+
+def get_invite_by_token(token: str) -> dict:
+    with get_connection() as conn:
+        cursor = conn.execute('''
+            SELECT i.*, o.name as org_name
+            FROM invites i
+            JOIN organizations o ON i.org_id = o.id
+            WHERE i.token = ? AND i.status = 'PENDING'
+        ''', (token,))
+        row = cursor.fetchone()
+        if not row:
+            raise ValueError("Invalid or expired invitation link.")
+        return dict(row)
+
+def accept_invite(token: str, password: str, name: str) -> dict:
+    inv = get_invite_by_token(token)
+    user = create_user(
+        email=inv["email"],
+        password=password,
+        name=name,
+        role=inv["role"]
+    )
+    with _lock, get_connection() as conn:
+        conn.execute("UPDATE users SET org_id = ? WHERE id = ?", (inv["org_id"], user["user_id"]))
+        conn.execute("UPDATE invites SET status = 'ACCEPTED' WHERE id = ?", (inv["id"],))
+        conn.commit()
+    user["org_id"] = inv["org_id"]
+    return user
+
+def get_org_members(org_id: str):
+    with get_connection() as conn:
+        cursor = conn.execute("SELECT id, email, name, role, created_at FROM users WHERE org_id = ? ORDER BY created_at ASC", (org_id,))
+        return [dict(row) for row in cursor.fetchall()]
+
+def get_org_invites(org_id: str):
+    with get_connection() as conn:
+        cursor = conn.execute("SELECT id, email, role, token, status, created_at FROM invites WHERE org_id = ? AND status = 'PENDING'", (org_id,))
+        return [dict(row) for row in cursor.fetchall()]
+
 # Initialize DB on import
 init_db()
+
 
