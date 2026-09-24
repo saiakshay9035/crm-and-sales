@@ -118,19 +118,31 @@ class ICPBackgroundWorker:
             logger.warning(f"[ICP Worker Daemon] Failed to send real-time lead alert email: {e}")
 
     def _run_loop(self):
-        """Main execution loop."""
+        """Main execution loop for continuous autonomous discovery."""
+        import random
         time.sleep(2)
 
+        DYNAMIC_SEED_MODIFIERS = [
+            "San Francisco 2026", "London SaaS", "New York seed stage",
+            "Sydney tech founder", "Dubai startup CEO", "Austin developer tools",
+            "Boston healthtech CEO", "Berlin AI agent startup", "YC B2B founder email",
+            "Show HN founder launch", "ProductHunt launch founder contact"
+        ]
+
         while not self._stop_event.is_set():
-            query = self.queries[self._query_index % len(self.queries)]
+            base_query = self.queries[self._query_index % len(self.queries)]
+            # Mutate query to ensure every pass hits fresh web search results
+            seed_mod = random.choice(DYNAMIC_SEED_MODIFIERS)
+            query = f"{base_query} {seed_mod}"
+            
             self.stats["current_query"] = query
             self.stats["last_run"] = time.strftime("%Y-%m-%d %H:%M:%S")
 
             logger.info(f"[ICP Worker Daemon] Running automated discovery for: '{query}'...")
 
             try:
-                # 1. Scrape real ICP leads
-                raw_leads = self.scraper.search_real_leads(query=query, limit=3)
+                # 1. Scrape real ICP leads across HackerNews, ProductHunt, GitHub, YC, & Search Engines
+                raw_leads = self.scraper.search_real_leads(query=query, limit=5)
 
                 # Get existing domains to prevent duplicates
                 existing_leads = get_all_leads()
@@ -138,12 +150,15 @@ class ICPBackgroundWorker:
 
                 unseen_raw = [l for l in raw_leads if l.get("domain", "").lower() not in existing_domains]
                 if not unseen_raw:
-                    logger.info(f"[ICP Worker Daemon] Live discovery yielded 0 new unseen domains for query '{query}'. Sleeping until next cycle...")
+                    logger.info(f"[ICP Worker Daemon] Live discovery yielded 0 new unseen domains for '{query}'. Mutating search strategy...")
                     self._query_index += 1
-                    time.sleep(self.interval_seconds)
+                    # Short sleep before trying next mutated query
+                    if self._stop_event.wait(timeout=5):
+                        break
                     continue
 
                 raw_leads = unseen_raw
+
 
                 new_count = 0
                 for lead in raw_leads:
@@ -206,5 +221,6 @@ class ICPBackgroundWorker:
                 break
 
 
-# Global singleton instance
-worker_instance = ICPBackgroundWorker(interval_seconds=60)
+# Global singleton instance (Runs continuous non-stop discovery loops every 10 seconds)
+worker_instance = ICPBackgroundWorker(interval_seconds=10)
+

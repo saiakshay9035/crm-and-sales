@@ -1,4 +1,6 @@
+import csv
 import html
+import io
 import json
 import os
 import time
@@ -7,7 +9,8 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
+
 from pydantic import BaseModel
 
 from config import settings
@@ -223,6 +226,57 @@ def get_leads():
     except Exception as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
+@app.get("/api/leads/export/csv")
+def export_leads_csv():
+    try:
+        from scraper import GENERIC_EMAIL_PREFIXES
+        leads = get_all_leads()
+        valid_leads = [
+            l for l in leads
+            if (
+                l.get("linkedin_url") and "linkedin.com/in/" in l.get("linkedin_url", "")
+                and (l.get("email") or "").split("@")[0].lower() not in GENERIC_EMAIL_PREFIXES
+                and l.get("deliverability_status") in ["IDENTITY_VERIFIED_CURRENT", "VERIFIED_HIGH"]
+            )
+        ]
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Write Header
+        writer.writerow([
+            "ID", "Company Name", "Domain", "Location", "Founder/Investor Name",
+            "Title", "Email", "LinkedIn URL", "ICP Score", "Deliverability Status",
+            "Status", "Summary", "Personalized Pitch"
+        ])
+
+        for lead in valid_leads:
+            writer.writerow([
+                lead.get("id", ""),
+                lead.get("company_name", ""),
+                lead.get("domain", ""),
+                lead.get("location", ""),
+                lead.get("founder_name", ""),
+                lead.get("founder_title", ""),
+                lead.get("email", ""),
+                lead.get("linkedin_url", ""),
+                lead.get("icp_score", 90),
+                lead.get("deliverability_status", ""),
+                lead.get("status", ""),
+                lead.get("tech_summary", ""),
+                lead.get("pitch", "")
+            ])
+
+        output.seek(0)
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=verified_leads_export.csv"}
+        )
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
 @app.post("/api/send-all-leads")
 def send_all_leads_endpoint(request: Request):
     try:
@@ -358,6 +412,17 @@ def add_lead_endpoint(req: AddLeadRequest):
     except Exception as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
+@app.post("/api/clear-leads")
+def clear_leads_endpoint():
+    try:
+        from database import _lock, get_connection
+        with _lock, get_connection() as conn:
+            conn.execute("DELETE FROM leads")
+            conn.commit()
+        return {"success": True, "message": "Cleared all stale leads"}
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
 @app.post("/api/discover-leads")
 def discover_leads_endpoint(req: DiscoverLeadsRequest):
     try:
@@ -368,7 +433,7 @@ def discover_leads_endpoint(req: DiscoverLeadsRequest):
         enricher = AIProspectEnricher()
         
         query = req.query if req.query else "Y Combinator AI startup founder"
-        limit = req.limit if req.limit else 4
+        limit = req.limit if req.limit else 5
         
         raw_leads = scraper.search_real_leads(query=query, limit=limit)
         
@@ -389,6 +454,7 @@ def discover_leads_endpoint(req: DiscoverLeadsRequest):
         return {"success": True, "count": len(enriched_leads), "leads": enriched_leads}
     except Exception as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
 
 
 @app.get("/")
@@ -889,13 +955,17 @@ def serve_dashboard():
         </div>
 
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-            <h2 style="font-size: 18px; margin: 0;">Captured ICP Founders (Review, Customize & Outreach)</h2>
-            <div style="display: flex; gap: 10px;">
-                <button class="btn" style="background: var(--success-color); color: white; width: auto; padding: 10px 20px;" onclick="sendAllEmails()">✉ Send All Emails (1-Click)</button>
-                <button class="btn" style="background: #a78bfa; color: white; width: auto; padding: 10px 20px;" onclick="openDiscoverModal()">🔍 Discover Real Leads</button>
-                <button class="btn" style="background: var(--accent-color); color: white; width: auto; padding: 10px 20px;" onclick="fetchLeads()">Refresh Leads</button>
+            <h2 style="font-size: 18px; margin: 0;">Captured ICP Founders & Investors</h2>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button class="btn" style="background: #10b981; color: white; width: auto; padding: 10px 16px;" onclick="downloadCSVExport()">📊 Export to Excel / CSV</button>
+                <button class="btn" style="background: #0284c7; color: white; width: auto; padding: 10px 16px;" onclick="downloadJSONExport()">📁 Export JSON</button>
+                <button class="btn" style="background: #ef4444; color: white; width: auto; padding: 10px 16px;" onclick="clearStaleLeadsAndRescan()">🧹 Purge & Rescan</button>
+                <button class="btn" style="background: #a78bfa; color: white; width: auto; padding: 10px 16px;" onclick="openDiscoverModal()">🔍 Discover Leads</button>
+                <button class="btn" style="background: var(--accent-color); color: white; width: auto; padding: 10px 16px;" onclick="fetchLeads()">Refresh</button>
             </div>
         </div>
+
+
 
         <div class="leads-grid" id="leads-container">
             <!-- Dynamic Lead Cards inserted via JS -->
@@ -935,6 +1005,27 @@ def serve_dashboard():
             }}, 3000);
         }}
 
+        function downloadCSVExport() {{
+            showToast("Downloading Excel/CSV file...", "success");
+            window.location.href = "/api/leads/export/csv";
+        }}
+
+        function downloadJSONExport() {{
+            showToast("Exporting verified leads to JSON...", "success");
+            fetch('/api/leads', {{ headers: getHeaders() }})
+                .then(res => res.json())
+                .then(data => {{
+                    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
+                    const downloadAnchor = document.createElement('a');
+                    downloadAnchor.setAttribute("href", dataStr);
+                    downloadAnchor.setAttribute("download", "verified_leads_export.json");
+                    document.body.appendChild(downloadAnchor);
+                    downloadAnchor.click();
+                    downloadAnchor.remove();
+                }});
+        }}
+
+
         function checkAuth() {{
             if (NEEDS_AUTH && !authToken) {{
                 document.getElementById('auth-modal').style.display = 'flex';
@@ -955,6 +1046,18 @@ def serve_dashboard():
             if (authToken) headers['Authorization'] = `Bearer ${{authToken}}`;
             return headers;
         }}
+
+        async function clearStaleLeadsAndRescan() {{
+            if (!confirm("Clear all existing leads and trigger a fresh multi-engine live web scan across HackerNews, ProductHunt, GitHub & search engines?")) return;
+            showToast("Wiping stale leads & initiating live web harvester...", "success");
+            try {{
+                await fetch('/api/clear-leads', {{ method: 'POST', headers: getHeaders() }});
+                await parseAndRunConversationalICP();
+            }} catch(e) {{
+                showToast("Error clearing leads: " + e.message, "danger");
+            }}
+        }}
+
 
         async function fetchLeads() {{
             if (!checkAuth()) return;
