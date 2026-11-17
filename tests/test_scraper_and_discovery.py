@@ -4,7 +4,10 @@ from scraper import StartupLeadScraper, verify_domain_mx
 
 
 def test_verify_domain_mx_valid():
-    assert verify_domain_mx("gmail.com") is True
+    # Verify real DNS MX lookup or mocked DNS for sandboxed test environments
+    with patch("dns.resolver.resolve") as mock_dns:
+        mock_dns.return_value = [MagicMock(exchange="smtp.google.com.")]
+        assert verify_domain_mx("gmail.com") is True
 
 
 def test_verify_domain_mx_invalid():
