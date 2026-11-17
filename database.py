@@ -5,7 +5,7 @@ import sqlite3
 import threading
 
 DB_PATH = os.environ.get('DB_PATH', 'leads.db')
-_lock = threading.Lock()
+_lock = threading.RLock()
 
 def get_connection():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -149,13 +149,35 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS lead_evidence (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     lead_id TEXT NOT NULL,
-                    signal_type TEXT NOT NULL,
-                    description TEXT NOT NULL,
-                    evidence_bullet TEXT,
+                    signal_type TEXT NOT NULL DEFAULT 'BUYING_TRIGGER',
+                    description TEXT DEFAULT '',
+                    evidence_bullet TEXT DEFAULT '',
+                    source_url TEXT NOT NULL DEFAULT '',
+                    evidence_extracted TEXT NOT NULL DEFAULT '',
+                    date_discovered TEXT DEFAULT CURRENT_TIMESTAMP,
+                    confidence_score REAL DEFAULT 1.0,
+                    statement TEXT DEFAULT '',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY(lead_id) REFERENCES leads(id)
                 )
             ''')
+
+        # Run schema migration for existing lead_evidence tables
+        try:
+            cursor = conn.execute("PRAGMA table_info(lead_evidence)")
+            existing_cols = {row[1] for row in cursor.fetchall()}
+            cols_to_add = {
+                "source_url": "TEXT NOT NULL DEFAULT ''",
+                "evidence_extracted": "TEXT NOT NULL DEFAULT ''",
+                "date_discovered": "TEXT DEFAULT CURRENT_TIMESTAMP",
+                "confidence_score": "REAL DEFAULT 1.0",
+                "statement": "TEXT DEFAULT ''"
+            }
+            for col_name, col_def in cols_to_add.items():
+                if col_name not in existing_cols:
+                    conn.execute(f"ALTER TABLE lead_evidence ADD COLUMN {col_name} {col_def}")
+        except Exception as e:
+            pass
 
         # Insert default organization & superadmin if missing
         conn.execute('''
@@ -215,6 +237,7 @@ def add_lead(lead_data: dict):
             cursor = conn.execute("SELECT id FROM leads WHERE (domain IS NOT NULL AND lower(domain) = ?) OR (email IS NOT NULL AND lower(email) = ?)", (domain, email))
             existing = cursor.fetchone()
             target_id = existing[0] if existing else (lead_data.get('id') or str(uuid.uuid4())[:8])
+            lead_data['id'] = target_id
 
             conn.execute('''
                 INSERT OR REPLACE INTO leads (
@@ -249,7 +272,66 @@ def add_lead(lead_data: dict):
                 lead_data.get('status', 'DRAFT_REVIEW')
             ))
             conn.commit()
+
+    # Save and validate any attached evidence records through the Anti-Hallucination Gate
+    evidence_items = lead_data.get('evidence') or lead_data.get('evidence_list') or []
+    if evidence_items and isinstance(evidence_items, list):
+        for ev in evidence_items:
+            try:
+                add_lead_evidence(target_id, ev)
+            except Exception as e:
+                pass
+
     return True
+
+def add_lead_evidence(lead_id: str, evidence) -> bool:
+    """Validates and persists a verified evidence item linked to a lead."""
+    from evidence_gate import default_gate, EvidenceItem
+    if isinstance(evidence, dict):
+        ev_dict = dict(evidence)
+        ev_dict["lead_id"] = lead_id
+        item = EvidenceItem.from_dict(ev_dict)
+    elif hasattr(evidence, "to_dict"):
+        item = evidence
+        item.lead_id = lead_id
+    else:
+        return False
+
+    is_valid, reason = default_gate.validate_evidence(item)
+    if not is_valid:
+        return False
+
+    with _lock, get_connection() as conn:
+        conn.execute('''
+            INSERT INTO lead_evidence (
+                lead_id, signal_type, description, evidence_bullet,
+                source_url, evidence_extracted, date_discovered, confidence_score, statement
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            lead_id,
+            item.signal_type,
+            item.statement or item.signal_type,
+            item.evidence_extracted,
+            item.source_url,
+            item.evidence_extracted,
+            item.date_discovered,
+            item.confidence_score,
+            item.statement
+        ))
+        conn.commit()
+    return True
+
+def get_lead_evidence(lead_id: str) -> list:
+    """Fetches all verified provenance evidence items for a given lead."""
+    with get_connection() as conn:
+        cursor = conn.execute('''
+            SELECT id, lead_id, signal_type, description, evidence_bullet,
+                   source_url, evidence_extracted, date_discovered, confidence_score, statement, created_at
+            FROM lead_evidence
+            WHERE lead_id = ?
+            ORDER BY confidence_score DESC, date_discovered DESC
+        ''', (lead_id,))
+        return [dict(row) for row in cursor.fetchall()]
 
 def update_lead_outcome(lead_id: str, outcome_status: str):
     with _lock, get_connection() as conn:

@@ -24,9 +24,11 @@ Target Lead:
 Your Value Proposition:
 {value_proposition}
 
-Requirements:
+Anti-Hallucination Gate Requirements:
 - Subject line included (format: "Subject: ..." on first line).
-- Hook mentioning their product/company and specific buying triggers/pain signals.
+- Hook mentioning their product/company and specific verified buying triggers.
+- STRICT ANTI-HALLUCINATION: NEVER invent, assume, or speculate on unverified pain points, technical debt, or negative struggles.
+- If no specific pain point is verified in the data, do not assume any. Ask an open, courteous question about their scaling priorities.
 - Direct value offer + low-friction call to action.
 - Professional, concise, no fluff or fake praise.
 - Sign off with: {sender_name}
@@ -109,12 +111,14 @@ class AIProspectEnricher:
         buying_triggers: list = None,
         pain_signals: list = None,
         value_proposition: str = "",
-        sender_name: str = ""
+        sender_name: str = "",
+        evidence: list = None
     ) -> str:
-        """Generates a high-converting personalized cold email using detected evidence."""
+        """Generates a high-converting personalized cold email strictly grounded in verified evidence."""
+        from evidence_gate import default_gate
         
         b_trig = ", ".join(buying_triggers) if isinstance(buying_triggers, list) and buying_triggers else "Growth & scaling"
-        p_sig = ", ".join(pain_signals) if isinstance(pain_signals, list) and pain_signals else "Operational efficiency"
+        p_sig = ", ".join(pain_signals) if isinstance(pain_signals, list) and pain_signals else "None documented (do not assume)"
 
         # Use configured identity or fallback
         if not value_proposition:
@@ -149,6 +153,13 @@ class AIProspectEnricher:
 
         if not pitch:
             pitch = self._fallback_template(founder_name, company_name, location, summary, buying_triggers, pain_signals)
+
+        # Enforce Anti-Hallucination Gate on generated pitch
+        clean_evidence = evidence or []
+        is_clean, violations = default_gate.enforce_pitch_grounding(pitch, clean_evidence)
+        if not is_clean:
+            logger.warning(f"[Anti-Hallucination Gate] Detected violations in generated pitch: {violations}. Sanitizing...")
+            pitch = default_gate.sanitize_pitch(pitch, company_name, clean_evidence)
 
         return html.unescape(pitch)
 
