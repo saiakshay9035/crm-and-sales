@@ -569,6 +569,166 @@ def discover_leads_endpoint(req: DiscoverLeadsRequest):
     except Exception as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
+# ==========================================
+# PHASE 3 & 4: CONVERSATION, INBOX & BOOKING
+# ==========================================
+
+@app.post("/api/webhooks/inbound-email")
+def inbound_email_webhook(payload: dict):
+    """
+    Inbound email webhook processor (SendGrid, Postmark, Mailgun, or standard JSON).
+    """
+    try:
+        from conversation_intelligence import conversation_agent
+        
+        sender = payload.get("from") or payload.get("sender") or payload.get("sender_email") or ""
+        recipient = payload.get("to") or payload.get("recipient") or payload.get("recipient_email") or ""
+        subject = payload.get("subject") or ""
+        text = payload.get("text") or payload.get("body") or payload.get("body_text") or ""
+        html_body = payload.get("html") or payload.get("body_html") or ""
+        message_id = payload.get("message_id") or payload.get("Message-ID")
+        in_reply_to = payload.get("in_reply_to") or payload.get("In-Reply-To")
+        references = payload.get("references") or payload.get("References")
+        provider = payload.get("provider", "INBOUND_WEBHOOK")
+        org_id = payload.get("org_id", "org_default")
+
+        if not sender or not text:
+            return JSONResponse({"success": False, "error": "Missing required fields 'from' and 'text'."}, status_code=400)
+
+        result = conversation_agent.process_inbound_email(
+            sender_email=sender,
+            recipient_email=recipient,
+            subject=subject,
+            body_text=text,
+            body_html=html_body,
+            message_id=message_id,
+            in_reply_to=in_reply_to,
+            references_header=references,
+            provider=provider,
+            org_id=org_id,
+            raw_payload=payload
+        )
+        return {"success": True, **result}
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/api/webhooks/gmail-push")
+def gmail_push_webhook(payload: dict):
+    """Gmail Cloud Pub/Sub push notification listener."""
+    try:
+        message_data = payload.get("message", {})
+        history_id = message_data.get("historyId", str(uuid.uuid4()))
+        return {"success": True, "provider": "GMAIL_PUSH", "history_id": history_id}
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/api/webhooks/outlook-push")
+def outlook_push_webhook(payload: dict):
+    """Microsoft Graph change notification listener."""
+    try:
+        return {"success": True, "provider": "MICROSOFT_GRAPH", "status": "RECEIVED"}
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.get("/api/conversations")
+def list_conversations_endpoint(org_id: str = "org_default"):
+    from database import list_conversations
+    return {"success": True, "conversations": list_conversations(org_id)}
+
+@app.get("/api/conversations/{conv_id}/messages")
+def get_conversation_messages_endpoint(conv_id: str, org_id: str = "org_default"):
+    from database import get_conversation_messages
+    return {"success": True, "messages": get_conversation_messages(conv_id, org_id)}
+
+@app.post("/api/conversations/{conv_id}/reply-draft")
+def draft_reply_endpoint(conv_id: str, org_id: str = "org_default"):
+    try:
+        from conversation_manager import conversation_manager
+        draft = conversation_manager.draft_response(conv_id, org_id=org_id)
+        return {"success": True, "draft": draft}
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/api/conversations/{conv_id}/send-reply")
+def send_reply_endpoint(conv_id: str, payload: dict):
+    try:
+        from conversation_manager import conversation_manager
+        subject = payload.get("subject", "Re: Follow up")
+        body = payload.get("body", "")
+        org_id = payload.get("org_id", "org_default")
+        result = conversation_manager.approve_and_send_reply(conv_id, subject, body, org_id=org_id)
+        return {"success": True, **result}
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/api/leads/{lead_id}/qualify")
+def qualify_lead_endpoint(lead_id: str, payload: dict = None):
+    try:
+        from qualification_agent import qualification_agent
+        conv_id = (payload or {}).get("conversation_id")
+        org_id = (payload or {}).get("org_id", "org_default")
+        report = qualification_agent.qualify_prospect(lead_id, conversation_id=conv_id, org_id=org_id)
+        return {"success": True, "report": report.to_dict()}
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.get("/api/calendar/slots")
+def get_calendar_slots_endpoint(org_id: str = "org_default", days: int = 5):
+    from calendar_booking import calendar_agent
+    slots = calendar_agent.get_available_slots(org_id=org_id, days_ahead=days)
+    return {"success": True, "slots": slots}
+
+@app.post("/api/calendar/book")
+def book_meeting_endpoint(payload: dict):
+    try:
+        from calendar_booking import calendar_agent
+        org_id = payload.get("org_id", "org_default")
+        lead_id = payload.get("lead_id")
+        start_time = payload.get("start_time")
+        end_time = payload.get("end_time")
+        title = payload.get("title", "Discovery Call")
+        agreement = bool(payload.get("explicit_prospect_agreement", False))
+        conv_id = payload.get("conversation_id")
+
+        if not lead_id or not start_time or not end_time:
+            return JSONResponse({"success": False, "error": "Missing required booking fields."}, status_code=400)
+
+        result = calendar_agent.book_meeting(
+            org_id=org_id,
+            lead_id=lead_id,
+            start_time=start_time,
+            end_time=end_time,
+            title=title,
+            explicit_prospect_agreement=agreement,
+            conversation_id=conv_id
+        )
+        return {"success": True, "booking": result}
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+@app.get("/api/sequences")
+def list_sequences_endpoint(org_id: str = "org_default"):
+    from sequence_scheduler import sequence_scheduler
+    default_seq = sequence_scheduler.get_or_create_default_sequence(org_id)
+    return {"success": True, "sequences": [default_seq]}
+
+@app.post("/api/sequences/enroll")
+def enroll_sequence_endpoint(payload: dict):
+    try:
+        from sequence_scheduler import sequence_scheduler
+        org_id = payload.get("org_id", "org_default")
+        lead_id = payload.get("lead_id")
+        seq_id = payload.get("sequence_id")
+        result = sequence_scheduler.enroll_prospect(org_id, lead_id, seq_id)
+        return {"success": True, **result}
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.get("/api/events")
+def list_events_endpoint(org_id: str = "org_default", lead_id: str = None, limit: int = 50):
+    from database import list_agent_events
+    return {"success": True, "events": list_agent_events(org_id, lead_id, limit)}
+
 
 
 @app.get("/")
